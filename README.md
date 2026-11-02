@@ -13,6 +13,8 @@ interface.
 [![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.1.0)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
 
+The release history is in [`CHANGELOG.md`](CHANGELOG.md).
+
 ## What it does
 
 * **Viewer** — opens an AFP file, renders pages as SVG on demand, zooms,
