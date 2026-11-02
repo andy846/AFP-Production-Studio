@@ -20,6 +20,10 @@
 
 * { box-sizing: border-box; }
 
+/* The HTML hidden attribute must win over every display declaration,
+ * otherwise a flex/grid section like the opener stays visible forever. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; margin: 0; }
 
 body {

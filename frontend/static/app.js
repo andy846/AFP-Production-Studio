@@ -6,7 +6,11 @@
 (function () {
   "use strict";
 
-  const CSRF = (window.AFP_STUDIO && window.AFP_STUDIO.csrfToken) || "";
+  // The CSRF token rides in a meta tag rather than an inline script, so
+  // the strict Content-Security-Policy (no 'unsafe-inline') still lets
+  // the page read it.
+  const CSRF_META = document.querySelector('meta[name="csrf-token"]');
+  const CSRF = CSRF_META ? CSRF_META.content : "";
 
   const state = {
     document: null,
@@ -185,7 +189,7 @@
   }
 
   function renderTab(tab) {
-    if (tab === "structure") renderStructure();
+    if (tab === "structure") loadStructurePage(state.page || 1);
     if (tab === "preflight") renderPreflight();
     if (tab === "resources") renderResources();
     if (tab === "report") renderReport();

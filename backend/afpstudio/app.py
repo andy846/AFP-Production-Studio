@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, render_template, session
+from flask import Flask, redirect, render_template, session, url_for
 
 from .api import bp as api_blueprint
 from .config import CONFIG, Config
@@ -79,6 +79,11 @@ def create_app(config: Config | None = None) -> Flask:
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Older browsers probe /favicon.ico even when a SVG icon is linked."""
+        return redirect(url_for("static", filename="favicon.svg"))
 
     return app
 
