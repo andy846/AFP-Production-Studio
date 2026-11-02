@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>AFP Production Studio</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">
+        <strong>AFP Production Studio</strong>
+        <em>media preflight &amp; print inspection</em>
+      </span>
+    </div>
+    <div class="masthead-doc" id="doc-chip" hidden>
+      <span id="doc-name">no document</span>
+      <span class="status-pill" id="doc-status" data-status="unresolved">unresolved</span>
+    </div>
+    <div class="masthead-tools">
+      <span class="privacy-note" title="Nothing leaves this machine">
+        local only &middot; loopback
+      </span>
+      <span class="version">v{{ version }}</span>
+    </div>
+  </header>
+
+  <section class="opener" id="opener">
+    <div class="opener-inner">
+      <h1>Open an AFP file</h1>
+      <p class="opener-lead">
+        Studio reads the file from disk, indexes it once and renders pages
+        on demand. Nothing is uploaded, and the source file is never
+        modified.
+      </p>
+      <form id="open-form" class="opener-form">
+        <label for="path-input">Path on this machine</label>
+        <input id="path-input" name="path" type="text" spellcheck="false"
+               autocomplete="off" placeholder="C:\Users\...\job.afp">
+        <div class="opener-row">
+          <label class="field">
+            <span>Printer profile</span>
+            <select id="profile-select"><option value="">none</option></select>
+          </label>
+          <label class="field">
+            <span>External form definition</span>
+            <input id="formdef-input" type="text" spellcheck="false"
+                   autocomplete="off" placeholder="optional .afp path">
+          </label>
+          <label class="field checkbox">
+            <input id="java-parser" type="checkbox">
+            <span>Cross-check with the Java parser</span>
+          </label>
+        </div>
+        <div class="opener-actions">
+          <button type="submit" class="primary" id="open-button">Open file</button>
+          <span class="opener-error" id="open-error" role="alert"></span>
+        </div>
+      </form>
+      <div class="opener-progress" id="opener-progress" hidden>
+        <div class="bar"><span id="opener-bar"></span></div>
+        <span id="opener-status">queued</span>
+        <button type="button" class="ghost" id="cancel-open">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button class="tab is-active" data-tab="viewer">Viewer</button>
+    <button class="tab" data-tab="structure">Structure</button>
+    <button class="tab" data-tab="preflight">Media Preflight</button>
+    <button class="tab" data-tab="resources">Resources</button>
+    <button class="tab" data-tab="report">Production Report</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <main class="workspace" id="workspace" hidden>
+    <aside class="panel tree-panel">
+      <div class="panel-head">
+        <h2>AFP tree</h2>
+        <button class="ghost small" id="close-document" title="Close the document">Close</button>
+      </div>
+      <div class="tree" id="tree"></div>
+      <div class="tree-search">
+        <input id="search-input" type="search" placeholder="Search fields or text">
+      </div>
+      <div class="search-results" id="search-results" hidden></div>
+    </aside>
+
+    <section class="panel main-panel" id="panel-viewer" data-panel="viewer">
+      <div class="panel-head">
+        <h2>Page viewer</h2>
+        <div class="viewer-tools">
+          <button class="ghost small" id="zoom-out" title="Zoom out">&minus;</button>
+          <span class="zoom-readout" id="zoom-readout">100%</span>
+          <button class="ghost small" id="zoom-in" title="Zoom in">+</button>
+          <button class="ghost small" id="zoom-fit">Fit</button>
+          <span class="pager">
+            <button class="ghost small" id="page-first">&laquo;</button>
+            <input id="page-number" type="number" min="1" value="1">
+            <span id="page-total">/ 0</span>
+            <button class="ghost small" id="page-last">&raquo;</button>
+          </span>
+        </div>
+      </div>
+      <div class="viewer-stage" id="viewer-stage">
+        <div class="viewer-empty" id="viewer-empty">No page selected.</div>
+        <div class="page-holder" id="page-holder"></div>
+      </div>
+    </section>
+
+    <section class="panel main-panel" data-panel="structure" hidden>
+      <div class="panel-head">
+        <h2>Structured fields</h2>
+        <span class="panel-note" id="structure-note"></span>
+      </div>
+      <div class="table-wrap" id="structure-table"></div>
+    </section>
+
+    <section class="panel main-panel" data-panel="preflight" hidden>
+      <div class="panel-head">
+        <h2>Media preflight</h2>
+        <span class="panel-note" id="preflight-note"></span>
+      </div>
+      <div class="timeline" id="media-timeline"></div>
+      <div class="table-wrap" id="preflight-table"></div>
+    </section>
+
+    <section class="panel main-panel" data-panel="resources" hidden>
+      <div class="panel-head">
+        <h2>Resources and fonts</h2>
+        <span class="panel-note" id="resources-note"></span>
+      </div>
+      <div class="table-wrap" id="resources-table"></div>
+    </section>
+
+    <section class="panel main-panel" data-panel="report" hidden>
+      <div class="panel-head">
+        <h2>Production report</h2>
+        <div class="viewer-tools">
+          <button class="ghost small" id="export-csv">Export CSV</button>
+          <button class="ghost small" id="export-excel">Export Excel</button>
+        </div>
+      </div>
+      <div class="report" id="report-body"></div>
+    </section>
+
+    <section class="panel main-panel" data-panel="settings" hidden>
+      <div class="panel-head">
+        <h2>Settings and printer profiles</h2>
+        <span class="panel-note" id="settings-note"></span>
+      </div>
+      <div class="settings" id="settings-body"></div>
+    </section>
+
+    <aside class="panel details-panel">
+      <div class="panel-head">
+        <h2>Page details</h2>
+      </div>
+      <div class="details" id="details"></div>
+    </aside>
+  </main>
+
+  <footer class="statusbar">
+    <span id="status-message">Ready.</span>
+    <span class="spacer"></span>
+    <span id="status-cache"></span>
+  </footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

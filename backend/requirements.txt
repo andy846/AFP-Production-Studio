@@ -1,0 +1,19 @@
+# AFP Production Studio — Python dependencies.
+#
+# Pinned so a build can be reproduced. Flask 2.3.3 is the last release of
+# the 2.x line; it is used because it is the version the vendored readAFP
+# code and this application were tested against.
+Flask==2.3.3
+Werkzeug==2.3.7
+Jinja2==3.1.4
+MarkupSafe==2.1.5
+itsdangerous==2.2.0
+click==8.1.7
+blinker==1.8.2
+
+# Excel export.
+openpyxl==3.1.5
+et-xmlfile==2.0.0
+
+# Test suite.
+pytest==8.4.1

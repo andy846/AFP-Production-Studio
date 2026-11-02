@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "printer_profile": "Sample Production Printer",
+  "media_maps": {
+    "MAP01": {
+      "stock_name": "A4 White 80gsm",
+      "tray": "Tray 1",
+      "paper_size": {
+        "width_mm": 210.0,
+        "height_mm": 297.0
+      }
+    },
+    "MAP02": {
+      "stock_name": "A4 Letterhead",
+      "tray": "Tray 2",
+      "paper_size": {
+        "width_mm": 210.0,
+        "height_mm": 297.0
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "letterhead-page-1-only",
+      "description": "Letterhead may only be used on page 1.",
+      "scope": "medium_map",
+      "match": {
+        "medium_map": "MAP02"
+      },
+      "constraints": {
+        "max_page_number": 1
+      },
+      "severity": "fail"
+    },
+    {
+      "id": "remaining-pages-plain-a4",
+      "description": "Every page after page 1 must use plain A4.",
+      "scope": "medium_map",
+      "match": {
+        "medium_map": "MAP01"
+      },
+      "constraints": {
+        "min_page_number": 2
+      },
+      "severity": "fail"
+    },
+    {
+      "id": "unknown-medium-map-fails",
+      "description": "A medium map that the profile does not describe must fail.",
+      "scope": "medium_map",
+      "match": {
+        "medium_map": "__unmapped__"
+      },
+      "severity": "fail"
+    }
+  ]
+}

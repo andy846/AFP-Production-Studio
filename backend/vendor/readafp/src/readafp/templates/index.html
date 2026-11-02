@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <script src="{{ url_for('static', filename='inbrowser.js') }}" defer></script>
+  <title>readAFP — AFP / MO:DCA file inspector &amp; renderer</title>
+  <meta name="description" content="Upload an AFP (Advanced Function Presentation / MO:DCA) file and explore its structured-field tree alongside an SVG render of every page. Decodes PTOCA text, IOCA images, BCOCA bar codes, and GOCA vector graphics.">
+  <meta name="author" content="Keith Lutz">
+  <meta name="keywords" content="AFP, MO:DCA, Advanced Function Presentation, AFP viewer, AFP inspector, PTOCA, IOCA, BCOCA, GOCA, mainframe print">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://readafp.com/">
+  <meta property="og:title" content="readAFP — AFP file inspector &amp; renderer">
+  <meta property="og:description" content="Inspect and render AFP (MO:DCA) files in your browser. Structured-field tree, decoded triplets, SVG render of PTOCA text, IOCA images, BCOCA bar codes, and GOCA vector graphics.">
+  <meta property="og:image" content="https://readafp.com/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="readAFP — AFP file inspector &amp; renderer">
+  <meta name="twitter:description" content="Inspect and render AFP / MO:DCA files. Structured-field tree + SVG render — PTOCA, IOCA, BCOCA, GOCA all supported.">
+  <meta name="twitter:image" content="https://readafp.com/static/og.png">
+  <link rel="canonical" href="https://readafp.com/">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "readAFP",
+    "url": "https://readafp.com/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any (web browser)",
+    "browserRequirements": "Requires a modern web browser; no install.",
+    "description": "Free online viewer and inspector for AFP (Advanced Function Presentation / MO:DCA) files. Explore the structured-field tree and a live SVG render of PTOCA text, IOCA images, BCOCA bar codes, and GOCA vector graphics.",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Keith Lutz" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is readAFP related to the AFP blood test (alpha-fetoprotein)?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. readAFP has nothing to do with the alpha-fetoprotein (AFP) blood test or lab report results. This site is a developer tool for a completely different kind of file: AFP (Advanced Function Presentation), IBM's MO:DCA print/document format. If you're looking for information about an AFP lab test, this isn't the right site — check with your lab or doctor."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is an AFP (.afp) file?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "An AFP file is IBM's Advanced Function Presentation format (MO:DCA) — a structured, page-based print stream used by mainframes and high-volume printers for output like statements, invoices, and bills. readAFP parses its internal structured fields and renders each page as SVG so you can inspect and view the document without IBM print software."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need to install anything to use readAFP?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. Upload an .afp file, or run it fully in-browser with no upload, and readAFP parses and renders it instantly, free, with no account or install required."
+        }
+      }
+    ]
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #12141d; --panel: #1a1d29; --card: #232737; --border: #313650;
+      --text: #e4e6f0; --dim: #9aa0b8; --accent: #26c6da; --warn: #ef5350;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; padding: 8px 16px 12px; background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      display: flex; flex-direction: column;
+    }
+    .topbar {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 4px 0 8px;
+    }
+    .brand { font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
+    .beta {
+      display: inline-block; vertical-align: middle; margin-left: 6px;
+      padding: 1px 7px; border-radius: 9px; font-size: 0.62rem;
+      font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: #fff; background: var(--accent);
+    }
+    form { display: flex; gap: 8px; align-items: center; margin: 0; }
+    input[type=file] { color: var(--dim); max-width: 240px; }
+    select {
+      background: var(--card); color: var(--text); font-size: 0.85rem;
+      border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+    }
+    button {
+      padding: 5px 14px; border: none; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: #08222a; font-weight: 600; font-size: 0.9rem;
+    }
+    .error {
+      background: rgba(239, 83, 80, 0.15); border: 1px solid var(--warn);
+      color: var(--warn); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
+    }
+    .resource-banner {
+      display: flex; gap: 12px; align-items: baseline;
+      background: #d32f2f; border: 1px solid #b71c1c;
+      border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+    }
+    .resource-banner .rb-tag {
+      flex: none; background: #fff; color: #b71c1c; font-weight: 800;
+      font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .resource-banner .rb-text { color: #fff; font-size: 0.86rem; line-height: 1.45; }
+    .resource-banner b { color: #fff; }
+    .resource-banner code {
+      font-family: Consolas, monospace; color: #ffe0e0; font-size: 0.82rem;
+    }
+    .missing-banner {
+      display: flex; gap: 12px; align-items: baseline;
+      background: rgba(255, 167, 38, 0.10); border: 1px solid #ffa726;
+      border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+    }
+    .missing-banner .mb-tag {
+      flex: none; background: #ffa726; color: #3a2600; font-weight: 700;
+      font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .missing-banner .mb-text { color: var(--text); font-size: 0.86rem; line-height: 1.5; }
+    .missing-banner code {
+      font-family: Consolas, monospace; color: #ffb74d; font-size: 0.82rem;
+    }
+    .missing-banner .mb-codec { color: var(--dim); font-size: 0.78rem; }
+    .meta { color: var(--dim); margin: 0; font-size: 0.85rem; }
+    .topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .view-toggle { display: flex; gap: 0; border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; }
+    .view-toggle button {
+      background: var(--panel); color: var(--dim); border-radius: 0;
+      font-weight: 500; padding: 5px 14px;
+    }
+    .view-toggle button.active { background: var(--accent); color: #08222a;
+      font-weight: 600; }
+    table {
+      border-collapse: collapse; width: 100%; font-size: 0.85rem;
+      background: var(--panel); border-radius: 12px; overflow: hidden;
+    }
+    th, td { padding: 6px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--card); color: var(--dim); position: sticky; top: 0; }
+    td.num, td.hex { font-family: Consolas, monospace; color: var(--dim); }
+    .sf-name { font-weight: 600; }
+    .token { color: var(--accent); font-family: Consolas, monospace; }
+    .summary {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
+    }
+    .summary h3 { margin: 0 0 10px; font-size: 0.95rem; }
+    .summary div { display: flex; justify-content: space-between; padding: 3px 6px;
+      font-size: 0.85rem; cursor: pointer; border-radius: 6px; }
+    .summary div:hover { background: var(--card); }
+    .summary div.active { background: var(--card); color: var(--accent);
+      box-shadow: inset 3px 0 0 var(--accent); }
+    .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+    .find-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .find-bar #find-input { flex: 1; min-width: 80px; background: var(--card);
+      border: 1px solid var(--border); color: var(--text); border-radius: 6px;
+      padding: 5px 8px; font-size: 0.85rem; }
+    .find-bar select { background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 5px; font-size: 0.82rem; }
+    .find-bar .find-case { color: var(--dim); font-size: 0.8rem; display: flex;
+      align-items: center; gap: 3px; cursor: pointer; user-select: none; }
+    .find-bar button { background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+    .find-bar button:hover { border-color: var(--accent); color: var(--accent); }
+    .find-bar button:disabled { opacity: 0.4; cursor: default; }
+    .find-count { color: var(--dim); font-size: 0.78rem; min-width: 56px;
+      font-variant-numeric: tabular-nums; }
+    td.fdata { color: var(--text); }
+    td.fdata .hex { color: var(--dim); font-family: Consolas, monospace; }
+    td.fdata .fd-text { color: var(--text); }
+    td.fdata mark.find-hit { background: #ffc107; color: #1a1a1a; border-radius: 2px; }
+    #sf-table tr.find-match td { background: rgba(255, 193, 7, 0.12); }
+    #sf-table tr.find-current td { background: rgba(255, 193, 7, 0.34); }
+    #sf-table tr.find-current td:first-child { box-shadow: inset 3px 0 0 #ffc107; }
+    #sf-table tr[data-page] { cursor: pointer; }
+    #sf-table tr.filtered { display: none; }
+    #sf-table tr.selected td { background: rgba(38, 198, 218, 0.12); }
+    #sf-table tr.page-anchor td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    #sf-table tr.has-triplets { cursor: pointer; }
+    .trip-count {
+      color: var(--accent); font-family: Consolas, monospace; font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    tr.trip-detail > td { background: var(--card); padding: 4px 12px 10px 42px; }
+    .trip-table { background: none; border-radius: 0; font-size: 0.8rem; }
+    .trip-table th { background: none; position: static; font-weight: 500;
+      padding: 4px 10px; }
+    .trip-table td { padding: 3px 10px; border-bottom: 1px solid var(--border); }
+    .trip-table td.detail { color: var(--text); }
+    .trip-table td.dim { color: var(--dim); }
+
+    /* Split layout: inspector | divider | renderer */
+    .split {
+      display: flex; flex: 1; min-height: 0; gap: 0;
+      border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    }
+    .pane { overflow: auto; min-width: 0; }
+    #inspect-pane { flex: 0 0 55%; padding: 14px; background: var(--bg); }
+    #render-pane {
+      flex: 1; background: #3c4154; padding: 0;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #render-pane .page-nav {
+      flex-shrink: 0; flex-wrap: wrap; justify-content: center;
+      padding: 8px 16px; background: #343949;
+      border-bottom: 1px solid var(--border);
+    }
+    #sheet-wrap { flex: 1; overflow: auto; padding: 12px 16px; }
+    #sheet-wrap .sheet { margin: 0 auto; }
+    #divider {
+      flex: 0 0 6px; cursor: col-resize; background: var(--border);
+    }
+    #divider:hover, #divider.dragging { background: var(--accent); }
+    .split.inspect-only #render-pane, .split.inspect-only #divider { display: none; }
+    .split.inspect-only #inspect-pane { flex: 1; }
+    .split.render-only #inspect-pane, .split.render-only #divider { display: none; }
+    .page-nav { display: flex; align-items: center; gap: 8px; color: #cdd2e4; }
+    .page-nav button { padding: 4px 12px; background: var(--card); color: var(--text); }
+    body.dropping { outline: 3px dashed var(--accent); outline-offset: -3px; }
+    .page-nav button:disabled { opacity: 0.35; cursor: default; }
+    .samples-section {
+      padding: 48px 0 0; display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    .faq-section {
+      padding: 40px 0 8px; max-width: 640px; margin: 0 auto; width: 100%;
+    }
+    .faq-section h2 { font-size: 1rem; color: var(--dim); font-weight: 600; margin: 0 0 12px; text-align: center; }
+    .faq-item {
+      border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+      margin-bottom: 8px; padding: 2px 16px;
+    }
+    .faq-item summary {
+      cursor: pointer; padding: 12px 0; font-size: 0.9rem; font-weight: 600;
+      list-style: none;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::before { content: "+ "; color: var(--accent); }
+    .faq-item[open] summary::before { content: "− "; }
+    .faq-item p { margin: 0 0 14px; color: var(--dim); font-size: 0.85rem; line-height: 1.55; }
+    .samples-heading { color: var(--dim); font-size: 0.9rem; margin: 0; }
+    .sample-cards { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+    .sample-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; width: 240px; text-decoration: none; color: var(--text);
+      display: flex; flex-direction: column; gap: 6px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .sample-card:hover { border-color: var(--accent); background: var(--card); }
+    .sample-card .sc-label { font-weight: 600; font-size: 0.95rem; }
+    .sample-card .sc-desc { color: var(--dim); font-size: 0.8rem; line-height: 1.45; }
+    #page-input {
+      width: 60px; padding: 3px 6px; text-align: center;
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem;
+    }
+    #page-input::-webkit-outer-spin-button, #page-input::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
+    .sheet {
+      background: white; box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+      width: 100%; max-width: 850px;
+    }
+    .sheet svg { display: block; width: 100%; height: auto; }
+    .sheet text.run-flash { fill: #e91e63 !important; animation: runflash 0.9s ease-in-out 2; }
+    .sheet rect.run-flash, .sheet image.run-flash {
+      stroke: #e91e63; stroke-width: 30; animation: runflash 0.9s ease-in-out 2;
+    }
+    @keyframes runflash { 50% { opacity: 0.2; } }
+    .render-note { color: #aab0c6; font-size: 0.8rem; }
+    .render-warn {
+      color: #ffcc66; font-size: 0.8rem; font-weight: 600;
+      background: rgba(255, 204, 102, 0.12); border: 1px solid rgba(255, 204, 102, 0.4);
+      border-radius: 6px; padding: 2px 8px; cursor: help;
+    }
+    .agree-label {
+      display: flex; align-items: center; gap: 5px;
+      color: var(--dim); font-size: 0.82rem; white-space: nowrap; cursor: pointer;
+    }
+    .agree-label input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; }
+    .link-btn {
+      background: none; border: none; padding: 0; cursor: pointer;
+      color: var(--accent); font-size: 0.82rem; text-decoration: underline;
+    }
+    .btn-ghost {
+      background: transparent; border: 1px solid var(--border); color: var(--dim);
+      font-weight: 500; font-size: 0.85rem; padding: 4px 12px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    #about-dlg {
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+      border-radius: 14px; padding: 0; max-width: 420px; width: 90%;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+    }
+    #about-dlg::backdrop { background: rgba(0,0,0,0.55); }
+    .about-body {
+      padding: 28px 32px 28px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .about-body h2 { margin: 0 0 2px; font-size: 1.3rem; }
+    .about-body h2 .ver {
+      font-size: 0.8rem; font-weight: 500; color: var(--accent);
+      vertical-align: middle; margin-left: 4px;
+    }
+    .about-body p { margin: 0; line-height: 1.55; font-size: 0.9rem; color: var(--dim); }
+    .about-body p strong { color: var(--text); }
+    .about-body a { color: var(--accent); text-decoration: none; }
+    .about-body a strong { color: inherit; }  /* linked names take the link color */
+    .about-body a:hover { text-decoration: underline; }
+    .about-body hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+    .about-close-row {
+      display: flex; justify-content: flex-end; padding: 10px 14px 0;
+    }
+    .about-close {
+      background: transparent; border: none; color: var(--dim); font-size: 1.1rem;
+      cursor: pointer; padding: 2px 6px; line-height: 1;
+    }
+    .about-close:hover { color: var(--text); }
+
+    /* Fidelity notes: mark approximated render regions + explain on hover. */
+    #fid-toggle.fid-on {           /* layer on */
+      background: #fef3c7; border-color: #f59e0b; color: #92400e;
+    }
+    #fid-toggle.fid-has {          /* off, but this page has notes to show */
+      border-color: #f59e0b; color: #d97706;
+    }
+    #fid-toggle.fid-none { opacity: .45; }   /* nothing approximated here */
+    #fid-count { font-variant-numeric: tabular-nums; }
+    #sheet.fid-show [data-fidelity].fid-in { cursor: help; }
+    /* Highlighter box drawn behind a flagged element (JS sizes it from the
+       element's getBBox), distinct from the document's own underlines. */
+    .fid-mark { fill: #f59e0b; fill-opacity: .18; pointer-events: none; }
+    #fid-tip {
+      position: fixed; z-index: 1000; max-width: 330px;
+      background: #1f2433; color: #eef1f8;
+      font: 12px/1.45 "Segoe UI", Arial, sans-serif;
+      padding: 8px 11px; border-radius: 8px;
+      box-shadow: 0 6px 24px rgba(0,0,0,.4);
+      pointer-events: none; display: none;
+    }
+    #fid-tip h4 {
+      margin: 0 0 5px; font-size: 10.5px; letter-spacing: .05em;
+      text-transform: uppercase; color: #fbbf24;
+    }
+    #fid-tip ul { margin: 0; padding-left: 15px; }
+    #fid-tip li { margin: 3px 0; }
+    #fid-tip li .cat { color: #9aa4bf; text-transform: capitalize; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="brand" title="Upload an AFP (Advanced Function Presentation) file to inspect its MO:DCA structure.">readAFP 🔍<span class="beta">Beta</span></span>
+    <form action="/inspect" method="post" enctype="multipart/form-data">
+      <input type="file" name="afpfile" accept=".afp,.afpds,.list3820">
+      <select name="codepage" title="EBCDIC code page used to decode text (when the file doesn't say)">
+        {% for value, label in codepages %}
+        <option value="{{ value }}"{{ " selected" if value == codepage }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <label class="agree-label" title="Draw small embedded raster fonts in the document's own glyphs (anti-aliased) instead of a substitute font. Off by default — substitute fonts are sharper for body text.">
+        <input type="checkbox" name="embed_small_fonts"{{ " checked" if embed_small_fonts }}>
+        <span>Small text in embedded font</span>
+      </label>
+      <label class="agree-label" title="Uploaded files are processed in-memory and not stored on the server">
+        <input type="checkbox" name="agree" required>
+        <span>I agree — <button type="button" class="link-btn" id="agree-terms">terms</button></span>
+      </label>
+      <button type="submit">Inspect / Render</button>
+    </form>
+    {% if fields %}
+    <span class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
+      {{ "{:,}".format(fields|length) }} structured fields
+      {% if page_total %} · {{ page_total }} page{{ "s" if page_total != 1 }}{% endif %}
+      {% if mcf_note %} · code page from MCF: {{ mcf_note }}{% endif %}</span>
+    {% endif %}
+    <div class="topbar-right">
+      {% if fields and page_svgs %}
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button type="button" data-view="inspect-only">Inspect</button>
+        <button type="button" data-view="" class="active">Split</button>
+        <button type="button" data-view="render-only">Render</button>
+      </div>
+      {% endif %}
+      <a href="/private" class="btn-ghost" title="Blocked from uploading at work? Run readAFP without sending files anywhere">Run privately</a>
+      <a href="/guide" class="btn-ghost" title="AFP &amp; MO:DCA guides">Guides</a>
+      <button type="button" id="about-btn" class="btn-ghost" title="About readAFP">About</button>
+    </div>
+  </div>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  {% if resource_kind %}
+  <div class="resource-banner">
+    <span class="rb-tag">⚠ WARNING! AFP RESOURCE</span>
+    <span class="rb-text">This file is an AFP <b>{{ resource_kind }}</b>, not a printable
+      document — it has no pages (no <code>BDT…EDT</code> document structure for a
+      viewer to lay out), which is why most AFP viewers can't open it at all.
+      {% if page_svgs %}readAFP shows a synthesized view of its contents on the
+      right.{% else %}readAFP lists its structured fields below; it carries no
+      drawable content to render.{% endif %}</span>
+  </div>
+  {% endif %}
+
+  {% if missing_resources %}
+  <div class="missing-banner">
+    <span class="mb-tag">Missing resources</span>
+    <span class="mb-text">This document references {{ missing_resources|length }}
+      external font resource{{ "s" if missing_resources|length != 1 }} that
+      {{ "are" if missing_resources|length != 1 else "is" }} not embedded in the
+      file. Like other AFP viewers, readAFP can't load them, so text using them
+      is drawn with a substitute font:
+      <span class="mb-list">
+        {% for r in missing_resources %}<code title="{{ r.kind }}">{{ r.name }}</code>{% if r.codec %} <span class="mb-codec">(text decoded via {{ r.codec }})</span>{% endif %}{{ ", " if not loop.last }}{% endfor %}</span></span>
+  </div>
+  {% endif %}
+
+  {% if not fields and not error %}
+  <div class="samples-section">
+    <p class="samples-heading">No AFP file? Try one of these built-in samples:</p>
+    <div class="sample-cards">
+      {% for s in samples %}
+      <a class="sample-card" href="/inspect-sample/{{ s.name }}" title="{{ s.desc }}">
+        <span class="sc-label">{{ s.label }}</span>
+        <span class="sc-desc">{{ s.desc }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="faq-section">
+    <h2>Frequently asked questions</h2>
+    <details class="faq-item">
+      <summary>Is readAFP related to the AFP blood test (alpha-fetoprotein)?</summary>
+      <p>No. readAFP has nothing to do with the alpha-fetoprotein (AFP) blood test
+        or lab report results. This site is a developer tool for a completely
+        different kind of file: <b>AFP (Advanced Function Presentation)</b>, IBM's
+        MO:DCA print/document format. If you're looking for information about an
+        AFP lab test, this isn't the right site — check with your lab or doctor.</p>
+    </details>
+    <details class="faq-item">
+      <summary>What is an AFP (.afp) file?</summary>
+      <p>An AFP file is IBM's Advanced Function Presentation format (MO:DCA) —
+        a structured, page-based print stream used by mainframes and high-volume
+        printers for output like statements, invoices, and bills. readAFP parses
+        its internal structured fields and renders each page as SVG so you can
+        inspect and view the document without IBM print software.</p>
+    </details>
+    <details class="faq-item">
+      <summary>Do I need to install anything to use readAFP?</summary>
+      <p>No. Upload an .afp file (or run it fully in-browser with no upload —
+        see "Run privately") and readAFP parses and renders it instantly, free,
+        with no account or install required.</p>
+    </details>
+  </div>
+  {% endif %}
+
+  {% if fields %}
+
+  <div class="split{% if not page_svgs %} inspect-only{% endif %}" id="split">
+    <div class="pane" id="inspect-pane">
+      <div class="find-bar">
+        <input type="search" id="find-input" placeholder="Find…" autocomplete="off">
+        <select id="find-mode" title="What to search">
+          <option value="ptx">PTX text</option>
+          <option value="nop">NOP text</option>
+          <option value="tle">TLE tags</option>
+          <option value="type">Field type</option>
+        </select>
+        <label class="find-case" title="Case sensitive">
+          <input type="checkbox" id="find-case"> Aa
+        </label>
+        <button type="button" id="find-prev" title="Previous match">▲</button>
+        <button type="button" id="find-next" title="Next match">▼</button>
+        <span id="find-count" class="find-count"></span>
+      </div>
+      <div class="summary">
+        <h3>Field counts <span style="font-weight:400;color:var(--dim)">— click to filter (toggle several)</span></h3>
+        {% for name, count in summary %}
+        <div data-name="{{ name }}"><span>{{ name }}</span><span>{{ count }}</span></div>
+        {% endfor %}
+      </div>
+      <table id="sf-table">
+        <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
+            <th>Field size</th><th>Field data</th></tr>
+        {% for f in fields %}
+        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{% if f.sf_id == '0xD3EE9B' %}ptx{% elif f.sf_id == '0xD3EEEE' %}nop{% else %}tle{% endif %}"{% endif %}>
+          <td class="num">{{ f.offset }}</td>
+          <td class="hex">{{ f.sf_id }}</td>
+          <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
+          <td class="token">{{ f.token }}</td>
+          <td class="num" title="{{ f.data_len }} data bytes">{{ f.size }}</td>
+          <td class="fdata"{% if f.data %} title="hex: {{ f.preview }}"{% endif %}>{% if f.data %}<span class="fd-text">{{ f.data }}</span>{% else %}<span class="hex">{{ f.preview }}</span>{% endif %}{% if f.triplets %}
+            <span class="trip-count" title="Click to show decoded triplets">▸ {{ f.triplets|length }} triplet{{ "s" if f.triplets|length != 1 }}</span>{% endif %}</td>
+        </tr>
+        {% if f.triplets %}
+        <tr class="trip-detail" data-name="{{ f.name }}" hidden><td colspan="6">
+          <table class="trip-table">
+            <tr><th>ID</th>{% if f.triplets[0].group is not none %}<th>RG</th>{% endif %}
+                <th>Triplet</th><th>Decoded</th><th>Data (hex)</th></tr>
+            {% for t in f.triplets %}
+            <tr>
+              <td class="hex">{{ t.id }}</td>
+              {% if t.group is not none %}<td class="dim">{{ t.group }}</td>{% endif %}
+              <td class="dim">{{ t.name }}</td>
+              <td class="detail">{{ t.detail }}</td>
+              <td class="hex">{{ t.hex }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </td></tr>
+        {% endif %}
+        {% endfor %}
+      </table>
+    </div>
+
+    {% if page_svgs %}
+    <div id="divider" title="Drag to resize"></div>
+    <div class="pane" id="render-pane">
+      <div class="page-nav">
+        <button type="button" id="first-page" title="First page">⏮</button>
+        <button type="button" id="prev-page" title="Previous page">◀</button>
+        <span>Page
+          <input type="number" id="page-input" min="1" max="{{ page_svgs|length }}" value="1">
+          of {{ page_svgs|length }}</span>
+        <button type="button" id="next-page" title="Next page">▶</button>
+        <button type="button" id="last-page" title="Last page">⏭</button>
+        <button type="button" id="copy-text" title="Copy this page's text">⧉ Copy text</button>
+        <button type="button" id="download-text" title="Download all pages as .txt">⬇ .txt</button>
+        <select id="zoom" title="Zoom">
+          <option value="fit" selected>Fit width</option>
+          <option value="0.5">50%</option>
+          <option value="1">100%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
+          <option value="4">400%</option>
+        </select>
+        <button type="button" id="fid-toggle" title="Fidelity notes: highlight parts of the render that approximate the original (substitute fonts, estimated sizes, omitted glyphs…) and explain why on hover.">⚠ Fidelity notes<span id="fid-count"></span></button>
+        <select id="fid-scope" title="Which approximations to flag">
+          <option value="all" selected>All notes</option>
+          <option value="font">Fonts only</option>
+        </select>
+        <span class="render-note" id="xy" title="Pointer position on the page, in inches"></span>
+        {% if page_total > page_svgs|length %}
+        <span class="render-warn" title="readAFP renders only the first {{ page_svgs|length }} pages to keep the in-browser SVG payload responsive — rendering all {{ "{:,}".format(page_total) }} pages at once would bloat the page and could freeze your browser. The inspector on the left still lists every structured field in the whole file.">⚠ Showing first {{ page_svgs|length }} of {{ "{:,}".format(page_total) }} pages — why?</span>
+        {% endif %}
+        <span class="render-note">· SVG render: text, rules, IOCA images, BCOCA bar codes &amp; GOCA vector graphics</span>
+      </div>
+      <div id="sheet-wrap">
+        <div class="sheet" id="sheet">{{ page_svgs[0]|safe }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+  // Wrapped in an IIFE so no top-level const/let leaks to the global scope:
+  // the in-browser (Pyodide) path delivers pages via document.write, which
+  // reuses the JS realm, and re-declaring globals there throws "already
+  // declared" and aborts the whole block (page nav died on a 2nd/3rd open).
+  (function () {
+    const svgs = [{% for svg in page_svgs or [] %}{{ svg|tojson }}{{ "," if not loop.last }}{% endfor %}];
+    let pageIdx = 0;
+    const sheet = document.getElementById("sheet");
+    const pageInput = document.getElementById("page-input");
+    const firstBtn = document.getElementById("first-page");
+    const prevBtn = document.getElementById("prev-page");
+    const nextBtn = document.getElementById("next-page");
+    const lastBtn = document.getElementById("last-page");
+
+    // Zoom: "fit" tracks the pane width; numbers are real size (the
+    // page's units-per-inch mapped to 96 css px/inch) times the factor.
+    const zoomSel = document.getElementById("zoom");
+    function applyZoom() {
+      const svg = sheet.querySelector("svg");
+      if (!svg) return;
+      if (zoomSel.value === "fit") {
+        sheet.style.width = "100%";
+        sheet.style.maxWidth = "850px";
+        svg.style.width = "100%";
+      } else {
+        const upi = parseInt(svg.dataset.upi, 10) || 1440;
+        const px = (svg.viewBox.baseVal.width / upi) * 96 * parseFloat(zoomSel.value);
+        sheet.style.width = px + "px";
+        sheet.style.maxWidth = "none";
+        svg.style.width = px + "px";
+      }
+    }
+
+    // X,Y readout: pointer position in inches from the page's top-left.
+    const xyLabel = document.getElementById("xy");
+    sheet.addEventListener("mousemove", (e) => {
+      const svg = sheet.querySelector("svg");
+      if (!svg) return;
+      const r = svg.getBoundingClientRect();
+      const upi = parseInt(svg.dataset.upi, 10) || 1440;
+      const x = ((e.clientX - r.left) / r.width) * svg.viewBox.baseVal.width / upi;
+      const y = ((e.clientY - r.top) / r.height) * svg.viewBox.baseVal.height / upi;
+      xyLabel.textContent = `X,Y: ${x.toFixed(2)}, ${y.toFixed(2)} in`;
+    });
+    sheet.addEventListener("mouseleave", () => { xyLabel.textContent = ""; });
+
+    // Render page change; by default also scrolls the inspector to the
+    // page's first field (its BPG row) and marks the page's rows.
+    function showPage(idx, syncInspector = true) {
+      if (!svgs.length) return;
+      pageIdx = Math.max(0, Math.min(idx, svgs.length - 1));
+      sheet.innerHTML = svgs[pageIdx];
+      applyZoom();
+      if (window.__applyFidelity) window.__applyFidelity();
+      pageInput.value = pageIdx + 1;
+      firstBtn.disabled = prevBtn.disabled = pageIdx === 0;
+      nextBtn.disabled = lastBtn.disabled = pageIdx === svgs.length - 1;
+      document.querySelectorAll("#sf-table tr.page-anchor")
+        .forEach((t) => t.classList.remove("page-anchor"));
+      document.querySelectorAll(`#sf-table tr[data-page="${pageIdx}"]`)
+        .forEach((t) => t.classList.add("page-anchor"));
+      if (syncInspector) {
+        const anchor = document.querySelector(`#sf-table tr[data-page="${pageIdx}"]`);
+        if (anchor) anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
+    // Per-page plain text: copy current page, download all as .txt.
+    const pageTexts = [{% for t in page_texts or [] %}{{ t|tojson }}{{ "," if not loop.last }}{% endfor %}];
+    const copyBtn = document.getElementById("copy-text");
+    const dlBtn = document.getElementById("download-text");
+    if (copyBtn && pageTexts.length) {
+      copyBtn.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(pageTexts[pageIdx] || "");
+        copyBtn.textContent = "✓ Copied";
+        setTimeout(() => { copyBtn.textContent = "⧉ Copy text"; }, 1200);
+      });
+      dlBtn.addEventListener("click", () => {
+        const blob = new Blob(
+          [pageTexts.join("\n\n----- page break -----\n\n")],
+          { type: "text/plain" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = {{ (filename or "afp")|tojson }} + ".txt";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+    }
+
+    if (svgs.length) {
+      firstBtn.addEventListener("click", () => showPage(0));
+      prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
+      nextBtn.addEventListener("click", () => showPage(pageIdx + 1));
+      lastBtn.addEventListener("click", () => showPage(svgs.length - 1));
+      pageInput.addEventListener("change", () =>
+        showPage(parseInt(pageInput.value, 10) - 1 || 0));
+      pageInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") pageInput.blur();
+      });
+      zoomSel.addEventListener("change", applyZoom);
+      showPage(0, false);
+    }
+
+    // Fidelity notes: dotted-underline every render element that carries a
+    // data-fidelity payload (a substitute font, estimated size, omitted
+    // glyph, fallback code page, composited image…) and explain why on
+    // hover. A toggle hides the whole layer; a scope select narrows it to
+    // font-only notes. Re-tagged on every page swap via window.__applyFidelity.
+    (function setupFidelity() {
+      const toggle = document.getElementById("fid-toggle");
+      const scopeSel = document.getElementById("fid-scope");
+      const fidCount = document.getElementById("fid-count");
+      if (!sheet || !toggle) return;
+      const tip = document.createElement("div");
+      tip.id = "fid-tip";
+      document.body.appendChild(tip);
+      const SCOPES = { all: null, font: new Set(["font"]) };
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      let on = false;  // opt-in: off until the user clicks the toggle
+
+      const parse = (el) => {
+        try { return JSON.parse(el.dataset.fidelity) || []; }
+        catch (e) { return []; }
+      };
+      const inScope = (notes) => {
+        const allow = SCOPES[scopeSel.value];
+        return allow ? notes.filter((n) => allow.has(n.cat)) : notes;
+      };
+      const escapeHtml = (s) => {
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+      };
+
+      function applyFidelity() {
+        sheet.classList.toggle("fid-show", on);
+        sheet.querySelectorAll(".fid-mark").forEach((r) => r.remove());
+        sheet.querySelectorAll("[data-fidelity]").forEach((el) => {
+          const hit = on && inScope(parse(el)).length > 0;
+          el.classList.toggle("fid-in", hit);
+          if (!hit) return;
+          let bb;
+          try { bb = el.getBBox(); } catch (e) { return; }
+          if (!bb || !bb.width) return;
+          const pad = Math.max(bb.height * 0.12, 6);
+          const rect = document.createElementNS(SVG_NS, "rect");
+          rect.setAttribute("x", bb.x - pad);
+          rect.setAttribute("y", bb.y - pad * 0.4);
+          rect.setAttribute("width", bb.width + pad * 2);
+          rect.setAttribute("height", bb.height + pad * 0.8);
+          rect.setAttribute("rx", pad * 0.6);
+          rect.setAttribute("class", "fid-mark");
+          el.parentNode.insertBefore(rect, el);  // paint behind the element
+        });
+        updateButton();
+      }
+
+      // Proactively show the button's state for the current page: a count +
+      // amber outline when there are notes to see (even while the layer is
+      // off), dimmed when nothing on this page is approximated.
+      function updateButton() {
+        let n = 0;
+        sheet.querySelectorAll("[data-fidelity]").forEach((el) => {
+          if (inScope(parse(el)).length) n += 1;
+        });
+        fidCount.textContent = n ? ` (${n})` : "";
+        toggle.classList.toggle("fid-on", on);
+        toggle.classList.toggle("fid-has", !on && n > 0);
+        toggle.classList.toggle("fid-none", n === 0);
+        toggle.title = n === 0
+          ? "Fidelity notes: nothing on this page is approximated — rendered faithfully."
+          : on
+            ? `Fidelity notes (on): ${n} approximated region(s) — click to hide.`
+            : `Fidelity notes: ${n} approximated region(s) on this page — `
+              + "click to highlight them and see why on hover.";
+      }
+      window.__applyFidelity = applyFidelity;
+
+      function positionTip(e) {
+        const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+        let x = e.clientX + pad, y = e.clientY + pad;
+        if (x + w > innerWidth) x = e.clientX - w - pad;
+        if (y + h > innerHeight) y = e.clientY - h - pad;
+        tip.style.left = x + "px";
+        tip.style.top = y + "px";
+      }
+      sheet.addEventListener("mouseover", (e) => {
+        if (!on) return;
+        const el = e.target.closest && e.target.closest("[data-fidelity]");
+        if (!el || !sheet.contains(el)) return;
+        const notes = inScope(parse(el));
+        if (!notes.length) return;
+        tip.innerHTML = "<h4>⚠ Why this may differ</h4><ul>" +
+          notes.map((n) =>
+            `<li><span class="cat">${escapeHtml(n.cat)}:</span> ` +
+            `${escapeHtml(n.msg)}</li>`).join("") + "</ul>";
+        tip.style.display = "block";
+        positionTip(e);
+      });
+      sheet.addEventListener("mousemove", (e) => {
+        if (tip.style.display === "block") positionTip(e);
+      });
+      sheet.addEventListener("mouseout", (e) => {
+        const to = e.relatedTarget;
+        if (!to || !to.closest || !to.closest("[data-fidelity]")) {
+          tip.style.display = "none";
+        }
+      });
+
+      toggle.addEventListener("click", () => {
+        on = !on;
+        toggle.classList.toggle("fid-on", on);
+        if (!on) tip.style.display = "none";
+        applyFidelity();
+      });
+      scopeSel.addEventListener("change", applyFidelity);
+      applyFidelity();
+    })();
+
+    // Inspector row click -> jump the render to that field's page and
+    // flash the exact content (text runs, rules) that field produced.
+    document.querySelectorAll("#sf-table tr[data-page]").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        document.querySelectorAll("#sf-table tr.selected")
+          .forEach((t) => t.classList.remove("selected"));
+        tr.classList.add("selected");
+        const p = parseInt(tr.dataset.page, 10);
+        if (p < svgs.length) {
+          showPage(p, false); // resets the sheet markup, clearing old flashes
+          sheet.querySelectorAll(`[data-src="${tr.dataset.offset}"]`)
+            .forEach((el) => el.classList.add("run-flash"));
+        }
+      });
+    });
+
+    // Row click -> expand/collapse the field's decoded-triplet detail.
+    document.querySelectorAll("#sf-table tr").forEach((tr) => {
+      const detail = tr.nextElementSibling;
+      if (detail && detail.classList.contains("trip-detail")) {
+        tr.classList.add("has-triplets");
+        tr.addEventListener("click", () => { detail.hidden = !detail.hidden; });
+      }
+    });
+
+    // Field-count click -> filter the table to the selected types. Clicking
+    // toggles each type, so several can be shown at once (NOPs + TLEs + ...).
+    const countRows = document.querySelectorAll(".summary div[data-name]");
+    function applyFilter() {
+      const active = Array.from(countRows)
+        .filter((c) => c.classList.contains("active"))
+        .map((c) => c.dataset.name);
+      document.querySelectorAll("#sf-table tr[data-name]").forEach((tr) => {
+        tr.classList.toggle(
+          "filtered", active.length > 0 && !active.includes(tr.dataset.name));
+      });
+    }
+    countRows.forEach((cr) => {
+      cr.addEventListener("click", () => {
+        cr.classList.toggle("active");
+        applyFilter();
+      });
+    });
+
+    // Find: search PTX text / NOP text / field type and step through hits.
+    (function setupFind() {
+      const input = document.getElementById("find-input");
+      if (!input) return;
+      const modeSel = document.getElementById("find-mode");
+      const caseBox = document.getElementById("find-case");
+      const prevBtn = document.getElementById("find-prev");
+      const nextBtn = document.getElementById("find-next");
+      const countEl = document.getElementById("find-count");
+      const allRows = Array.from(
+        document.querySelectorAll("#sf-table tr[data-offset]"));
+      let matches = [];
+      let cur = -1;
+
+      function rowHay(tr, mode) {
+        if (mode === "type") return tr.dataset.name || "";
+        if (tr.dataset.kind !== mode) return null;  // ptx/nop kind must match
+        return tr.dataset.search || "";
+      }
+      const esc = (s) => s.replace(/[&<>]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      function clearHits() {
+        document.querySelectorAll("#sf-table .fd-text").forEach((span) => {
+          if (span.dataset.orig !== undefined) span.textContent = span.dataset.orig;
+        });
+      }
+      function highlightRow(tr, needle, cs) {
+        const span = tr.querySelector(".fd-text");
+        if (!span) return;
+        const text = span.dataset.orig !== undefined
+          ? span.dataset.orig : span.textContent;
+        span.dataset.orig = text;
+        const hay = cs ? text : text.toLowerCase();
+        const nee = cs ? needle : needle.toLowerCase();
+        let out = "", i = 0, idx;
+        while ((idx = hay.indexOf(nee, i)) >= 0) {
+          out += esc(text.slice(i, idx)) +
+            '<mark class="find-hit">' + esc(text.slice(idx, idx + nee.length)) +
+            "</mark>";
+          i = idx + nee.length;
+        }
+        span.innerHTML = out + esc(text.slice(i));
+      }
+      function focusCurrent() {
+        allRows.forEach((tr) => tr.classList.remove("find-current"));
+        if (cur < 0) return;
+        const tr = matches[cur];
+        tr.classList.remove("filtered");
+        tr.classList.add("find-current");
+        tr.scrollIntoView({ block: "center", behavior: "smooth" });
+        // A PTX hit on a page: jump there and flash its rendered text.
+        if (modeSel.value === "ptx" && tr.dataset.page !== undefined &&
+            sheet && parseInt(tr.dataset.page, 10) < svgs.length) {
+          const p = parseInt(tr.dataset.page, 10);
+          showPage(p, false);
+          sheet.querySelectorAll(`[data-src="${tr.dataset.offset}"]`)
+            .forEach((el) => el.classList.add("run-flash"));
+        }
+      }
+      function updateCount() {
+        countEl.textContent = matches.length
+          ? `${cur + 1} / ${matches.length}`
+          : (input.value ? "no matches" : "");
+        prevBtn.disabled = nextBtn.disabled = matches.length < 2;
+      }
+      function recompute() {
+        allRows.forEach((tr) =>
+          tr.classList.remove("find-match", "find-current"));
+        clearHits();
+        const q = input.value;
+        const mode = modeSel.value;
+        if (!q) { matches = []; cur = -1; updateCount(); return; }
+        // Find and field-count filter don't mix: clear the filter.
+        document.querySelectorAll(".summary div.active")
+          .forEach((c) => c.classList.remove("active"));
+        document.querySelectorAll("#sf-table tr.filtered")
+          .forEach((tr) => tr.classList.remove("filtered"));
+        const cs = caseBox.checked;
+        const needle = cs ? q : q.toLowerCase();
+        matches = allRows.filter((tr) => {
+          const hay = rowHay(tr, mode);
+          if (hay === null) return false;
+          return (cs ? hay : hay.toLowerCase()).includes(needle);
+        });
+        matches.forEach((tr) => tr.classList.add("find-match"));
+        if (mode !== "type") matches.forEach((tr) => highlightRow(tr, q, cs));
+        cur = matches.length ? 0 : -1;
+        focusCurrent();
+        updateCount();
+      }
+      function step(d) {
+        if (!matches.length) return;
+        cur = (cur + d + matches.length) % matches.length;
+        focusCurrent();
+        updateCount();
+      }
+      input.addEventListener("input", recompute);
+      modeSel.addEventListener("change", recompute);
+      caseBox.addEventListener("change", recompute);
+      nextBtn.addEventListener("click", () => step(1));
+      prevBtn.addEventListener("click", () => step(-1));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+      });
+      updateCount();
+    })();
+
+    // View toggle: inspect-only / split / render-only.
+    const split = document.getElementById("split");
+    document.querySelectorAll(".view-toggle button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        split.classList.remove("inspect-only", "render-only");
+        if (btn.dataset.view) split.classList.add(btn.dataset.view);
+        document.querySelectorAll(".view-toggle button")
+          .forEach((b) => b.classList.toggle("active", b === btn));
+      });
+    });
+
+    // Draggable divider: resizes the inspector pane's flex-basis.
+    const divider = document.getElementById("divider");
+    const inspectPane = document.getElementById("inspect-pane");
+    if (divider) {
+      divider.addEventListener("mousedown", (down) => {
+        down.preventDefault();
+        divider.classList.add("dragging");
+        const startX = down.clientX;
+        const startWidth = inspectPane.getBoundingClientRect().width;
+        const totalWidth = split.getBoundingClientRect().width;
+        function onMove(move) {
+          const pct = ((startWidth + move.clientX - startX) / totalWidth) * 100;
+          inspectPane.style.flexBasis = Math.max(15, Math.min(85, pct)) + "%";
+        }
+        function onUp() {
+          divider.classList.remove("dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }
+  })();
+  </script>
+  {% endif %}
+
+  <dialog id="about-dlg" aria-label="About readAFP">
+    <div class="about-close-row">
+      <button class="about-close" id="about-close" aria-label="Close">✕</button>
+    </div>
+    <div class="about-body">
+      <div>
+        <h2>readAFP <span class="ver">v{{ app_version }}</span><span class="beta">Beta</span></h2>
+        <p>AFP / MO:DCA file inspector and SVG renderer</p>
+      </div>
+      <hr>
+      <p>Vibe-coded by
+        <a id="author-email" href="#"><strong>Keith Lutz</strong></a>, 2026</p>
+      <p>Built with <strong>Claude (Anthropic)</strong> via <strong>Fable5</strong></p>
+      <p>Written in <strong>Python {{ python_version }}</strong></p>
+      <hr>
+      <p>
+        <a href="https://github.com/bone1966/readAFP" target="_blank" rel="noopener">
+          View source on GitHub →
+        </a>
+      </p>
+      <p>Released under the
+        <a href="https://opensource.org/license/mit" target="_blank" rel="noopener"><strong>MIT License</strong></a>
+        — free to use, fork, and improve.</p>
+      <hr>
+      <p>See also:
+        <a href="https://github.com/bone1966/accume" target="_blank" rel="noopener"><strong>accume</strong></a>
+        — a mainframe-style flat-file (fixed-width / delimited / EBCDIC) viewer, same author.</p>
+    </div>
+  </dialog>
+
+  <script>
+  (function () {  // IIFE: keep these out of the global scope (see note above)
+    // Drag-and-drop upload: drop an .afp anywhere on the page.
+    const dropInput = document.querySelector('input[type=file]');
+    const dropForm = document.querySelector("form");
+    ["dragenter", "dragover"].forEach((ev) =>
+      document.addEventListener(ev, (e) => {
+        e.preventDefault();
+        document.body.classList.add("dropping");
+      }));
+    ["dragleave", "drop"].forEach((ev) =>
+      document.addEventListener(ev, (e) => {
+        e.preventDefault();
+        document.body.classList.remove("dropping");
+      }));
+    document.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files.length) {
+        dropInput.files = e.dataTransfer.files;
+        // requestSubmit (not submit): fires the submit event so the
+        // in-browser (no-upload) handler can intercept, and enforces the
+        // required terms checkbox. submit() would silently POST the file.
+        dropForm.requestSubmit();
+      }
+    });
+
+    const aboutBtn = document.getElementById("about-btn");
+    const aboutDlg = document.getElementById("about-dlg");
+    const aboutClose = document.getElementById("about-close");
+    // Guard re-entry (showModal throws if the dialog is already open) and
+    // ignore a backdrop-click for a moment after opening, so a double-click
+    // on the button doesn't open then immediately close it — the second
+    // click lands on the now-covering modal backdrop. That self-close was
+    // the cause of "About sometimes doesn't work".
+    let aboutOpenedAt = 0;
+    function openAbout() {
+      if (aboutDlg.open) return;
+      aboutOpenedAt = Date.now();
+      aboutDlg.showModal();
+    }
+    aboutBtn.addEventListener("click", openAbout);
+    document.getElementById("agree-terms").addEventListener("click", openAbout);
+    aboutClose.addEventListener("click", () => aboutDlg.close());
+    aboutDlg.addEventListener("click", (e) => {
+      if (e.target === aboutDlg && Date.now() - aboutOpenedAt > 300) aboutDlg.close();
+    });
+
+    // Remember the terms agreement for the rest of the browser session so
+    // it only has to be ticked once, not on every upload.
+    const agreeBox = document.querySelector('input[name=agree]');
+    if (agreeBox) {
+      if (sessionStorage.getItem("readafp-agreed") === "1") agreeBox.checked = true;
+      agreeBox.addEventListener("change", () => {
+        sessionStorage.setItem("readafp-agreed", agreeBox.checked ? "1" : "0");
+      });
+    }
+
+    // Assemble the author's mailto in JS so the plain address never
+    // appears in the page source for email harvesters to scrape.
+    const emailLink = document.getElementById("author-email");
+    const emailParts = ["keithlutzdea", "gmail.com"];
+    emailLink.href = "mailto:" + emailParts[0] + "@" + emailParts[1];
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+"""Lazy, single page rendering.
+
+readAFP's renderer builds its page model by walking the whole document
+once, because fonts, code pages, overlays and named images are declared
+before the pages that use them. Rendering all pages up front is fine for
+a letter and hopeless for a 20 000 page print job, so this module
+replays only the state a single page actually depends on:
+
+* every field inside a replay scope (resource group, page segment,
+  overlay, object container, active environment group),
+* every document level field, and
+* the fields of the page being rendered.
+
+Documents also differ in how they bracket pages. Most use Begin Page and
+End Page; some older generators put presentation text straight into the
+data stream, and readAFP paginates that content itself. Both shapes are
+supported: bracketed pages are rendered on demand, and unbracketed
+content is paginated once and cached.
+
+The result is compared against the upstream whole-document render by the
+differential test, which is what keeps the two paths honest.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from readafp.parser import StructuredField
+from readafp.ptoca import extract_pages
+from readafp.render import page_to_svg
+
+from .index import ALWAYS_INCLUDE, PTX, DocumentIndex
+
+
+class RenderError(Exception):
+    """Raised when a page cannot be rendered."""
+
+
+def select_global_fields(index: DocumentIndex) -> list[int]:
+    """Return the fields that contribute document-wide state."""
+    return [
+        i
+        for i in range(index.field_count)
+        if index.scopes[i]
+        or not index.in_page[i]
+        or index.sf_ids[i] in ALWAYS_INCLUDE
+    ]
+
+
+def select_replay_fields(index: DocumentIndex, page: int) -> list[int]:
+    """Return the field indexes needed to render ``page``."""
+    selected: list[int] = []
+    for i in range(index.field_count):
+        if index.scopes[i] or not index.in_page[i]:
+            # State scope, or document level (outside every page bracket).
+            selected.append(i)
+        elif index.pages[i] == page:
+            selected.append(i)
+        elif index.sf_ids[i] in ALWAYS_INCLUDE:
+            selected.append(i)
+    return selected
+
+
+def _read_fields(
+    handle, index: DocumentIndex, selection: list[int]
+) -> list[StructuredField]:
+    """Read the selected fields, one seek per contiguous run."""
+    fields: list[StructuredField] = []
+    i = 0
+    total = len(selection)
+    while i < total:
+        j = i
+        while (
+            j + 1 < total
+            and index.offsets[selection[j + 1]]
+            == index.offsets[selection[j]] + index.lengths[selection[j]]
+        ):
+            j += 1
+
+        first = selection[i]
+        last = selection[j]
+        start = index.offsets[first]
+        end = index.offsets[last] + index.lengths[last]
+        handle.seek(start)
+        chunk = handle.read(end - start)
+        for k in range(i, j + 1):
+            fi = selection[k]
+            offset = index.offsets[fi]
+            length = index.lengths[fi]
+            payload = chunk[offset - start : offset - start + length]
+            fields.append(
+                StructuredField(
+                    offset=offset,
+                    sf_id=index.sf_ids[fi],
+                    flags=index.flags[fi],
+                    sequence=index.sequences[fi],
+                    data=payload[9:],
+                )
+            )
+        i = j + 1
+    return fields
+
+
+class PageRenderer:
+    """Renders single pages on demand from an indexed document."""
+
+    def __init__(
+        self,
+        path: Path,
+        index: DocumentIndex,
+        codepage: str = "cp500",
+        embed_small_fonts: bool = False,
+    ) -> None:
+        self.path = Path(path)
+        self.index = index
+        self.codepage = codepage
+        self.embed_small_fonts = embed_small_fonts
+        self._extra: list[str] | None = None
+
+    # -- page inventory --------------------------------------------------
+
+    def _extra_pages(self) -> list[str]:
+        """Pages that are not bracketed by Begin Page / End Page."""
+        if self._extra is not None:
+            return self._extra
+        selection = select_global_fields(self.index)
+        has_unbracketed_text = any(
+            self.index.sf_ids[i] == PTX and not self.index.in_page[i]
+            for i in selection
+        )
+        if self.index.page_count > 0 and not has_unbracketed_text:
+            self._extra = []
+            return self._extra
+        with self.path.open("rb") as handle:
+            fields = _read_fields(handle, self.index, selection)
+        pages = extract_pages(fields, self.codepage, self.embed_small_fonts)
+        self._extra = [page_to_svg(p) for p in pages]
+        return self._extra
+
+    @property
+    def page_count(self) -> int:
+        """Total number of pages the viewer will show."""
+        return self.index.page_count + len(self._extra_pages())
+
+    # -- rendering -------------------------------------------------------
+
+    def render(self, page: int) -> str:
+        """Return the SVG for the given zero based page number."""
+        if page < 0:
+            raise RenderError(f"Page {page} is outside the document.")
+        if page < self.index.page_count:
+            selection = select_replay_fields(self.index, page)
+            with self.path.open("rb") as handle:
+                fields = _read_fields(handle, self.index, selection)
+            pages = extract_pages(fields, self.codepage, self.embed_small_fonts)
+            if not pages:
+                raise RenderError("No renderable page was produced.")
+            # Only the requested page bracket survives the replay, so the
+            # bracketed page is the first entry.
+            return page_to_svg(pages[0])
+
+        extra = self._extra_pages()
+        offset = page - self.index.page_count
+        if offset >= len(extra):
+            raise RenderError(f"Page {page} is outside the document.")
+        return extra[offset]
+
+    def render_all_eager(self, limit: int | None = None) -> list[str]:
+        """Render every page the way readAFP does, for comparison only."""
+        with self.path.open("rb") as handle:
+            fields = _read_fields(
+                handle, self.index, list(range(self.index.field_count))
+            )
+        pages = extract_pages(fields, self.codepage, self.embed_small_fonts)
+        if limit is not None:
+            pages = pages[:limit]
+        return [page_to_svg(p) for p in pages]
