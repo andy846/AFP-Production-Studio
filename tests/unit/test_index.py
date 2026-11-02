@@ -92,3 +92,42 @@ def test_index_of_a_large_document_is_cheap(tmp_path):
     # The index keeps compact arrays, not the file.
     assert index.file_size > 100_000
     assert index.field_count < 100_000
+
+
+def test_the_demo_job_carries_text_and_a_medium_map_change(tmp_path):
+    import re
+
+    from afpstudio.viewer.renderer import PageRenderer
+
+    path = tmp_path / "demo.afp"
+    path.write_bytes(synthetic.demo_job(4))
+
+    index = build_index(path)
+    assert index.page_count == 4
+    assert index.page_groups == ["LETTER"]
+
+    svg = PageRenderer(path, index).render(0)
+    texts = [
+        chunk
+        for chunk in re.findall(r">([^<]{2,})<", svg)
+        if chunk.strip()
+    ]
+    assert "AFP Production Studio" in texts
+    assert "Media preflight demonstration job" in texts
+
+
+def test_presentation_text_survives_several_lines(tmp_path):
+    import re
+
+    from afpstudio.viewer.renderer import PageRenderer
+
+    path = tmp_path / "lines.afp"
+    path.write_bytes(synthetic.demo_job(4))
+
+    svg = PageRenderer(path, build_index(path)).render(1)
+    texts = [
+        chunk
+        for chunk in re.findall(r">([^<]{2,})<", svg)
+        if chunk.strip()
+    ]
+    assert "Page 2 of 4" in texts

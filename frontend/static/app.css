@@ -288,6 +288,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
   border-radius: 2px;
   display: block;
+  /* The SVG carries a viewBox but no width/height, so the browser would
+   * stretch it to the stage and squash the page. The width comes from
+   * --page-width, which the script sets from the viewBox and scales
+   * with the zoom. */
+  width: var(--page-width, 1984px);
+  height: auto;
+  max-width: none;
 }
 
 .table-wrap { flex: 1; min-height: 0; overflow: auto; }

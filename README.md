@@ -10,6 +10,9 @@ Everything runs on the machine it is started on. No document content is
 uploaded, there is no telemetry, and the server binds to the loopback
 interface.
 
+[![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.1.0)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
+
 ## What it does
 
 * **Viewer** — opens an AFP file, renders pages as SVG on demand, zooms,
@@ -45,6 +48,12 @@ as a silent success.
 
 ## Getting started
 
+### From a release
+
+Download the source archive from the
+[releases page](https://github.com/andy846/AFP-Production-Studio/releases),
+or clone the repository:
+
     git clone <this repository> AFP-Production-Studio
     cd AFP-Production-Studio
     powershell -ExecutionPolicy Bypass -File scripts\run.ps1
@@ -52,6 +61,23 @@ as a silent success.
 Then open <http://127.0.0.1:8787>. The full instructions, including the
 optional Java cross-check parser, are in
 [`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md).
+
+The script creates a virtual environment, installs the pinned
+dependencies and starts the server. Python 3.11 or newer is the only
+requirement; a JDK 21 is needed only for the optional Java cross-check
+parser.
+
+### Trying it without a customer file
+
+The repository ships a synthetic AFP under `testdata/` that exercises a
+medium map change halfway through a job. Open it from the opening
+screen and the **Media Preflight** tab will show the transition:
+
+    testdata/sample/demo-medium-transition.afp
+
+Never open a customer AFP on a machine that is not allowed to hold it.
+Studio does not send anything anywhere, but the file is read from disk
+and rendered locally.
 
 ## How it is put together
 

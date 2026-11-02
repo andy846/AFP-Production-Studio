@@ -34,6 +34,18 @@ MMC = 0xD3A788
 MMT = 0xD3AB88
 MMD = 0xD3ABCD
 PGD = 0xD3A6AF
+PTX = 0xD3EE9B
+
+# PTOCA control sequences, as they appear inside a PTX payload.
+PTOCA_ESCAPE = b"\x2b\xd3"
+CS_SCFL = 0xF0
+CS_AMB = 0xD2
+CS_TRN = 0xDA
+CS_SIM = 0xC0
+CS_BLN = 0xD8
+
+#: 1440 units per inch is the usual MO:DCA inline resolution.
+UNITS_PER_INCH = 1440
 
 #: Triplet identifiers.
 TRIPLET_FULLY_QUALIFIED_NAME = 0x02
@@ -222,6 +234,55 @@ def _map_entry(local_id: int, fqn_type: int, name: str) -> bytes:
     return group
 
 
+def _control_sequence(cs_type: int, params: bytes) -> bytes:
+    """Build one PTOCA control sequence."""
+    return bytes([len(params) + 2, cs_type]) + params
+
+
+def ptx_text(
+    lines: list[tuple[str, int]],
+    font_local_id: int = 1,
+    left_margin: int = 240,
+) -> bytes:
+    """Build a PTX payload that draws lines of text.
+
+    Each entry is the text and the baseline it sits on, measured in
+    L-units from the top of the page. The sequence per line is
+    ``SCFL`` (pick the font), ``AMB`` (move to the baseline) and
+    ``TRN`` (the text itself).
+
+    The text is encoded as UTF-16BE, which is what a producer with a
+    TrueType font emits and what the viewer prefers.
+
+    Coordinates are in the same L-units as the page descriptor. The
+    builder's page uses 240 units per inch, so the default margin of
+    240 is one inch.
+    """
+    payload = b""
+    for text, baseline in lines:
+        # Each line gets its own escape. A TRN consumes every byte up
+        # to the end of its own sequence, so a second line cannot share
+        # the chain with the first.
+        payload += PTOCA_ESCAPE
+        # SIM sets the inline margin, so the text starts a sensible
+        # distance from the left edge instead of at the very edge.
+        sequence = _control_sequence(
+            CS_SIM | 0x01, left_margin.to_bytes(2, "big")
+        )
+        # BLN resets the inline coordinate to the margin; AMB then sets
+        # the baseline this line sits on.
+        sequence += _control_sequence(CS_BLN | 0x01, b"")
+        sequence += _control_sequence(CS_SCFL | 0x01, bytes([font_local_id]))
+        sequence += _control_sequence(
+            CS_AMB | 0x01, (baseline).to_bytes(2, "big", signed=True)
+        )
+        sequence += _control_sequence(
+            CS_TRN, text.encode("utf-16-be")
+        )
+        payload += sequence
+    return structured_field(PTX, payload)
+
+
 def mmt(local_id: int, name: str) -> bytes:
     """Build a map media type entry."""
     return structured_field(MMT, _map_entry(local_id, FQN_TYPE_MEDIA_TYPE, name))
@@ -359,6 +420,58 @@ def transition_document(pages: int = 4) -> bytes:
         page_invokes=["MAP01", "MAP01", "MAP02", "MAP02"],
     )
     return spec.build()
+
+
+def demo_job(pages: int = 4) -> bytes:
+    """A readable demonstration job.
+
+    Four pages with visible text, a named page group, and a medium map
+    change halfway through so the preflight has something to show:
+    plain stock for the first half, letterhead for the second.
+    """
+    spec = MediumMapSpec(
+        name="MAP01",
+        media_type="WHITE80",
+        media_destination="TRAY1",
+    )
+    letterhead = MediumMapSpec(
+        name="MAP02",
+        media_type="LETTERHEAD",
+        media_destination="TRAY2",
+    )
+
+    out = bdt()
+    out += bng("LETTER")
+    out += bfm("FORM01")
+    out += spec.build()
+    out += letterhead.build()
+    out += efm("FORM01")
+    for page in range(1, pages + 1):
+        out += bpg()
+        out += pgd(210.0, 297.0)
+        if page == 1:
+            out += ptx_text(
+                [
+                    ("AFP Production Studio", 480),
+                    ("Media preflight demonstration job", 600),
+                ]
+            )
+        else:
+            out += ptx_text(
+                [
+                    (f"Page {page} of {pages}", 480),
+                    (
+                        "Medium map: "
+                        + ("MAP01 plain A4" if page <= pages // 2 else "MAP02 letterhead"),
+                        600,
+                    ),
+                ]
+            )
+        out += imm("MAP01" if page <= pages // 2 else "MAP02")
+        out += epg()
+    out += eng("LETTER")
+    out += edt()
+    return out
 
 
 def no_form_def_document(pages: int = 2) -> bytes:

@@ -18,6 +18,7 @@
     report: null,
     page: 1,
     zoom: 1,
+    zoomFitted: true,
     tab: "viewer",
     tree: null,
     jobTimer: null,
@@ -274,23 +275,50 @@
     state.zoom = Math.min(8, Math.max(0.1, value));
     $("zoom-readout").textContent = Math.round(state.zoom * 100) + "%";
     const holder = $("page-holder");
-    holder.style.transform = "scale(" + state.zoom + ")";
+    const svg = holder.querySelector("svg");
+    if (svg) {
+      // Scaling the width rather than using a CSS transform keeps the
+      // stage scrollable, so a zoomed-in page can still be panned.
+      const size = svgSize(svg);
+      if (size) {
+        svg.style.setProperty(
+          "--page-width",
+          Math.round(size.width * state.zoom) + "px"
+        );
+      }
+    }
   }
 
   function fitPage() {
     const stage = $("viewer-stage");
     const svg = $("page-holder").querySelector("svg");
     if (!svg) return;
-    const viewBox = svg.getAttribute("viewBox");
-    if (!viewBox) {
+    const size = svgSize(svg);
+    if (!size) {
       setZoom(1);
       return;
     }
-    const parts = viewBox.split(/\s+/).map(Number);
-    const width = parts[2] || 1;
-    const height = parts[3] || 1;
     const available = stage.clientWidth - 60;
-    setZoom(Math.min(2, available / width));
+    const availableHeight = stage.clientHeight - 60;
+    const scale = Math.min(
+      available / size.width,
+      availableHeight > 0 ? availableHeight / size.height : Infinity
+    );
+    setZoom(Math.min(2, Math.max(0.1, scale)));
+  }
+
+  /* The page SVG carries a viewBox but no width or height, so the
+   * stylesheet sizes it from a custom property. Both the zoom and the
+   * "Fit" button work off the viewBox, which is the page's real size
+   * in units. */
+  function svgSize(svg) {
+    const viewBox = svg.getAttribute("viewBox");
+    if (!viewBox) return null;
+    const parts = viewBox.split(/\s+/).map(Number);
+    const width = parts[2];
+    const height = parts[3];
+    if (!width || !height) return null;
+    return { width: width, height: height };
   }
 
   async function showPage(page) {
@@ -312,7 +340,14 @@
       const response = await fetch(url);
       if (!response.ok) throw new Error("The page could not be rendered.");
       holder.innerHTML = await response.text();
-      setZoom(state.zoom);
+      // The first page is fitted to the stage; after that the operator's
+      // own zoom is kept.
+      if (state.zoomFitted) {
+        fitPage();
+        state.zoomFitted = false;
+      } else {
+        setZoom(state.zoom);
+      }
       highlightTreePage(clamped);
       renderDetails(clamped);
       if (state.tab === "structure") loadStructurePage(clamped);
