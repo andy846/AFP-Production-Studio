@@ -1,0 +1,93 @@
+{% extends "guide_base.html" %}
+{% block title %}Use readAFP Privately — No Upload (Offline / Self-Hosted){% endblock %}
+{% block description %}Your company blocks uploading files? Run readAFP so your AFP documents never leave your computer or network — from source, with Docker, and more.{% endblock %}
+{% block canonical %}/private{% endblock %}
+{% block content %}
+  <div class="crumbs"><a href="/">Home</a> › Use it privately</div>
+  <h1>Use readAFP without uploading your files</h1>
+
+  <p>Many organizations block uploading internal documents to outside
+  websites — that's <strong>data-loss prevention (DLP)</strong>, and it's the
+  right call: your AFP files often hold customer data (statements, invoices,
+  letters).</p>
+
+  <p><strong>Good news — readafp.com already handles this.</strong> When you
+  open your own file on the site, it's parsed <strong>right in your browser</strong>
+  (via WebAssembly); the file is <strong>never uploaded</strong> and never
+  leaves your computer. So in most cases you can just use the site normally,
+  even where uploads are blocked — there's nothing to send, so there's nothing
+  for DLP to stop.</p>
+
+  <p>The only catch: the in-browser engine loads its code from a public CDN
+  the first time. If your network blocks <em>that</em> too, use one of the
+  fully self-contained options below — all of them keep your files
+  <strong>local</strong>, and most companies allow GitHub so you can get the
+  code even when other things are blocked.</p>
+
+  <table>
+    <tr>
+      <th>Option</th><th>Best for</th><th>Your files</th><th>Setup</th>
+    </tr>
+    <tr>
+      <td><strong>In your browser</strong> (just use <a href="/">readafp.com</a>)</td>
+      <td>Almost everyone</td>
+      <td>Never leave the page</td>
+      <td><strong>nothing — it's the default</strong></td>
+    </tr>
+    <tr>
+      <td><a href="#source">Run from source</a></td>
+      <td>Anyone who can install Python</td>
+      <td>Stay on your PC</td>
+      <td>3 commands</td>
+    </tr>
+    <tr>
+      <td><a href="#docker">Self-host with Docker</a></td>
+      <td>Teams / IT (shared internal URL)</td>
+      <td>Stay in your network</td>
+      <td>2 commands</td>
+    </tr>
+    <tr>
+      <td><a href="#exe">Standalone app (.exe)</a></td>
+      <td>No-Python Windows PCs</td>
+      <td>Stay on your PC</td>
+      <td>1 download</td>
+    </tr>
+  </table>
+
+  <h2 id="source">1. Run it from the source</h2>
+  <p>readAFP is open source (MIT). Clone or download it from
+  <a href="https://github.com/bone1966/readAFP">GitHub</a> and run it locally —
+  it serves only to <code>127.0.0.1</code> on your machine, so files never
+  leave your PC. You'll need <a href="https://www.python.org/downloads/">Python
+  3</a>.</p>
+  <pre><code>git clone https://github.com/bone1966/readAFP
+cd readAFP
+pip install -r requirements.txt
+python run.py</code></pre>
+  <p>Then open <code>http://127.0.0.1:8770</code> in your browser. (No git? Use
+  GitHub's <strong>Code → Download ZIP</strong> button and unzip it instead.)</p>
+
+  <h2 id="docker">2. Self-host with Docker</h2>
+  <p>If your team has Docker, run readAFP as a container — on your own machine
+  or an internal server everyone can reach at a private URL. Files stay inside
+  your network.</p>
+  <pre><code>docker build -t readafp .
+docker run -p 8770:8770 readafp</code></pre>
+  <p>Then open <code>http://localhost:8770</code> (or share the host's internal
+  address with your team).</p>
+
+  <h2 id="exe">3. Standalone Windows app (.exe)</h2>
+  <p>No Python, no setup —
+  <a href="https://github.com/bone1966/readAFP/releases/latest">download
+  <code>readAFP.exe</code></a> from GitHub Releases, double-click it, and
+  readAFP opens in your browser. Your files stay on your PC.</p>
+  <p>Because the app is free and unsigned, Windows SmartScreen may warn
+  <em>"Windows protected your PC"</em> the first time — click
+  <strong>More info → Run anyway</strong>. (Some locked-down corporate PCs
+  block unsigned apps entirely; if so, use the source or Docker option above.)</p>
+
+  <p>Need help getting set up? The project is on
+  <a href="https://github.com/bone1966/readAFP">GitHub</a> — open an issue.</p>
+
+  <a class="cta" href="/">Files <em>not</em> sensitive? <strong>Just use it here →</strong></a>
+{% endblock %}
