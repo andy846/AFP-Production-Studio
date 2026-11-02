@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.measure/
+.pytest-tmp/
+
+# Java adapter build output
+alpheus-adapter/build/
+third_party/
+
+# Local configuration
+*.key
+.env
+
+# Reports exported while developing
+*.csv
+*.xlsx
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
