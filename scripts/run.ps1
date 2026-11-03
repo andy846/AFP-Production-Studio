@@ -16,13 +16,17 @@
 
 .PARAMETER Reload
     Restart the server when a source file changes.
+
+.PARAMETER Desktop
+    Open the application in a native window instead of a browser tab.
 #>
 
 [CmdletBinding()]
 param(
     [int]$Port = 8787,
     [string]$Host = "127.0.0.1",
-    [switch]$Reload
+    [switch]$Reload,
+    [switch]$Desktop
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,16 +40,28 @@ if (-not (Test-Path (Join-Path $Venv "Scripts\python.exe"))) {
 
 $Python = Join-Path $Venv "Scripts\python.exe"
 Write-Host "Installing the Python dependencies..." -ForegroundColor Cyan
+# The pinned requirements file is read as UTF-8. Without this, a
+# machine with a legacy code page fails while reading the file.
+$env:PYTHONUTF8 = "1"
 & $Python -m pip install --disable-pip-version-check -q `
     -r (Join-Path $RepoRoot "backend\requirements.txt")
 
-$env:AFP_STUDIO_HOST = $Host
-$env:AFP_STUDIO_PORT = "$Port"
+$env:PYTHONUTF8 = "1"
 $env:PYTHONPATH = "$RepoRoot\backend;$RepoRoot\backend\vendor\readafp\src"
 
-Write-Host "AFP Production Studio is starting on http://${Host}:${Port}" -ForegroundColor Green
-if ($Reload) {
-    & $Python -m afpstudio
+if ($Desktop) {
+    # The desktop shell needs pywebview, which is not in the default
+    # install because it pulls in a .NET dependency.
+    & $Python -m pip install --disable-pip-version-check -q pywebview==6.2.1
+    Write-Host "AFP Production Studio is opening in a desktop window." -ForegroundColor Green
+    & $Python -m afpstudio --desktop
 } else {
-    & $Python -m afpstudio
+    $env:AFP_STUDIO_HOST = $Host
+    $env:AFP_STUDIO_PORT = "$Port"
+    Write-Host "AFP Production Studio is starting on http://${Host}:${Port}" -ForegroundColor Green
+    if ($Reload) {
+        & $Python -m afpstudio
+    } else {
+        & $Python -m afpstudio
+    }
 }

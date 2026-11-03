@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..resources import package_data_dir
 from .schema import PrinterProfile, ProfileError, validate_profile
 
 SAMPLE_PROFILE = "sample_profile.json"
@@ -21,7 +22,7 @@ class ProfileStore:
         self.directory.mkdir(parents=True, exist_ok=True)
         target = self.directory / SAMPLE_PROFILE
         if not target.exists():
-            source = Path(__file__).parent / "profiles" / SAMPLE_PROFILE
+            source = package_data_dir("afpstudio.printer_profiles") / "profiles" / SAMPLE_PROFILE
             target.write_bytes(source.read_bytes())
         return target
 

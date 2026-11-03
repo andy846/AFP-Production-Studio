@@ -7,8 +7,6 @@ Everything it needs is on the machine it runs on.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from flask import Flask, redirect, render_template, session, url_for
 
 from .api import bp as api_blueprint
@@ -16,12 +14,13 @@ from .config import CONFIG, Config
 from .document_model.model import DocumentStore
 from .parser_adapters.alpheus import AlpheusAdapter
 from .printer_profiles.store import ProfileStore
+from .resources import frontend_dir
 from .security.csrf import issue_token
 from .security.headers import apply_headers
 from .viewer.cache import PageCache
 from .viewer.jobs import JobManager
 
-FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+FRONTEND_DIR = frontend_dir()
 
 
 def create_app(config: Config | None = None) -> Flask:

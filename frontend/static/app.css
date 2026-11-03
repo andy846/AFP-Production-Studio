@@ -128,6 +128,13 @@ input:focus, select:focus, textarea:focus {
 .field.checkbox input { width: auto; }
 .field.checkbox > span { margin: 0; }
 
+/* The path field and its Browse button share a row. The button is
+   hidden until the desktop shell provides a native dialog, so a
+   browser tab does not offer a control that could not work there. */
+.path-row { display: flex; align-items: center; gap: 8px; }
+.path-row input { flex: 1 1 auto; min-width: 0; }
+.path-row button { flex: 0 0 auto; white-space: nowrap; }
+
 .opener-actions { margin-top: 20px; display: flex; align-items: center; gap: 14px; }
 .opener-error { color: var(--fail); font-size: 12.5px; }
 

@@ -10,6 +10,11 @@ __pycache__/
 alpheus-adapter/build/
 third_party/
 
+# PyInstaller build output
+build/
+dist/
+/*.spec
+
 # Local configuration
 *.key
 .env

@@ -4,6 +4,70 @@ All notable changes to this project are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [semantic versioning](https://semver.org/).
 
+## [0.2.0] — 2026-11-04
+
+Studio is now a program instead of a server you have to start and a
+browser you have to find. The browser mode is still there and still
+behaves the same.
+
+### Added
+
+* **A desktop shell** — `pywebview` opens the application in a native
+  Windows window. The window hosts the same local server on an
+  ephemeral loopback port, so the application logic is unchanged and
+  there is only one implementation of every feature.
+* **A single executable** — `scripts/build_exe.py` freezes the
+  application with PyInstaller into
+  `dist/AFP-Production-Studio.exe` (21.7 MiB). The templates, the
+  static assets, the sample printer profile and the vendored readAFP
+  data are bundled in and located at run time through
+  `sys._MEIPASS`. Double-clicking it opens the window; `--web` asks
+  for the browser mode instead.
+* **Native file dialogs** — **Browse** buttons pick the AFP file and
+  an external form definition, and the export button opens a native
+  save dialog. The path boxes still accept typed paths, so the
+  browser mode is unchanged.
+* **A resource locator** — `afpstudio.resources` resolves the
+  frontend and the bundled data whether the code runs from the source
+  tree or from the frozen executable.
+* **`AFP_STUDIO_MODE`** — `desktop` or `web`. The default is still
+  `web`, so nothing changes for an existing installation.
+* **`scripts/run.ps1 -Desktop`** — creates the environment, installs
+  `pywebview` and opens the window.
+* **30 new tests** — unit tests for the shell, security tests for the
+  bridge and the local server, and end to end tests that start the
+  application inside a stand-in for the window toolkit.
+
+### Fixed
+
+* **`segno` is now a declared dependency.** The vendored readAFP
+  imports it but it was not in the requirements file, so a fresh
+  installation failed at import time with a `ModuleNotFoundError`.
+* **The frozen build no longer starts the browser mode.** The
+  launcher defaults to `--desktop`, because double-clicking an
+  executable has to open the application.
+
+### Security
+
+* The desktop window is served from an ephemeral port on `127.0.0.1`
+  only. A second copy of Studio cannot collide with the first, and
+  nothing is reachable from the network.
+* The native bridge exposes four methods and nothing else: attach,
+  pick an AFP file, pick a form definition, save a report. A missing
+  window toolkit raises instead of pretending that the user
+  cancelled.
+* The server is stopped when the window closes, and the temporary
+  directory is removed.
+
+### Known limitations
+
+* The executable is not code-signed, so Windows shows the "Windows
+  protected your PC" banner on first run.
+* The executable does not contain the Java cross-check parser, which
+  needs a JDK 21. Point it at a jar with `AFP_STUDIO_ALPHEUS_JAR`.
+* `pywebview` is not in the default requirements, because it pulls in
+  a .NET dependency that the browser mode does not need.
+
 ## [0.1.0] — 2026-11-02
 
 The first public release. It is the working MVP of the production
@@ -71,4 +135,5 @@ readAFP and an optional cross-check against the Alpheus AFP Parser.
 * The Alpheus cross-check needs a JDK 21 that this repository does
   not ship; `scripts/setup_deps.ps1` builds it when one is present.
 
+[0.2.0]: https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.2.0
 [0.1.0]: https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.1.0
