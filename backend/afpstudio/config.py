@@ -39,6 +39,12 @@ class Config:
     """Settings bag resolved once at app creation."""
 
     def __init__(self) -> None:
+        # "desktop" opens a native window; "web" serves the application
+        # for a browser. The desktop shell is the same application on a
+        # loopback port, so the two differ only in presentation.
+        self.mode: str = (
+            os.environ.get("AFP_STUDIO_MODE", "web").strip().lower() or "web"
+        )
         self.host: str = os.environ.get("AFP_STUDIO_HOST", "127.0.0.1")
         self.port: int = _env_int("AFP_STUDIO_PORT", 8787)
         self.debug: bool = os.environ.get("AFP_STUDIO_DEBUG", "") == "1"

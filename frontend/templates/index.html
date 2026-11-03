@@ -39,8 +39,12 @@
       </p>
       <form id="open-form" class="opener-form">
         <label for="path-input">Path on this machine</label>
-        <input id="path-input" name="path" type="text" spellcheck="false"
-               autocomplete="off" placeholder="C:\Users\...\job.afp">
+        <div class="path-row">
+          <input id="path-input" name="path" type="text" spellcheck="false"
+                 autocomplete="off" placeholder="C:\Users\...\job.afp">
+          <button type="button" class="ghost" id="browse-button"
+                  title="Choose an AFP file" hidden>Browse...</button>
+        </div>
         <div class="opener-row">
           <label class="field">
             <span>Printer profile</span>
@@ -48,8 +52,12 @@
           </label>
           <label class="field">
             <span>External form definition</span>
-            <input id="formdef-input" type="text" spellcheck="false"
-                   autocomplete="off" placeholder="optional .afp path">
+            <div class="path-row">
+              <input id="formdef-input" type="text" spellcheck="false"
+                     autocomplete="off" placeholder="optional .afp path">
+              <button type="button" class="ghost" id="browse-formdef-button"
+                      title="Choose a form definition" hidden>Browse...</button>
+            </div>
           </label>
           <label class="field checkbox">
             <input id="java-parser" type="checkbox">

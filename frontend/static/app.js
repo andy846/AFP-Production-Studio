@@ -27,6 +27,66 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // The desktop shell exposes native file dialogs through a small
+  // bridge. In a browser tab there is no bridge, so the code falls
+  // back to the plain path field. The bridge is only used to pick a
+  // path; opening and exporting still go through the ordinary HTTP
+  // API, where the path checks apply.
+  function nativeApi() {
+    if (window.pywebview && window.pywebview.api) return window.pywebview.api;
+    return null;
+  }
+
+  // The desktop shell injects its bridge after the page has loaded, so
+  // the Browse buttons may not be usable at the moment the page runs.
+  // The bridge announces itself with the "pywebviewready" event; if
+  // that has already fired, the bridge is checked directly.
+  function whenNativeReady(callback) {
+    if (nativeApi()) {
+      callback();
+      return;
+    }
+    window.addEventListener("pywebviewready", () => callback(), { once: true });
+    // Some versions install the bridge without announcing it, so the
+    // check is repeated for a short while.
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts += 1;
+      if (nativeApi()) {
+        clearInterval(poll);
+        callback();
+      } else if (attempts > 40) {
+        clearInterval(poll);
+      }
+    }, 100);
+  }
+
+  async function pickFile(method) {
+    const api = nativeApi();
+    if (!api) return null;
+    try {
+      const result = await api[method]();
+      if (!result || result.cancelled) return null;
+      return result.path || null;
+    } catch (err) {
+      setStatus("The file dialog could not be opened: " + err.message);
+      return null;
+    }
+  }
+
+  async function pickSavePath(defaultName, fileType) {
+    const api = nativeApi();
+    if (!api) return null;
+    try {
+      const result = await api.save_report_file(defaultName, fileType);
+      if (!result || result.cancelled) return null;
+      return result.path || null;
+    } catch (err) {
+      setStatus("The save dialog could not be opened: " + err.message);
+      return null;
+    }
+  }
+
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -68,6 +128,27 @@
   /* ------------------------------------------------------------------ */
 
   function initOpener() {
+    // The Browse buttons only work where the desktop shell provides a
+    // native dialog. In a browser tab they are hidden, because there
+    // is nothing behind them.
+    whenNativeReady(() => {
+      $("browse-button").hidden = false;
+      $("browse-formdef-button").hidden = false;
+    });
+
+    $("browse-button").addEventListener("click", async () => {
+      const path = await pickFile("pick_afp_file");
+      if (path) {
+        $("path-input").value = path;
+        $("open-error").textContent = "";
+      }
+    });
+
+    $("browse-formdef-button").addEventListener("click", async () => {
+      const path = await pickFile("pick_form_definition");
+      if (path) $("formdef-input").value = path;
+    });
+
     $("open-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const path = $("path-input").value.trim();
@@ -934,10 +1015,22 @@
   function initExport() {
     const doExport = async (format) => {
       if (!state.document) return;
-      const target = window.prompt(
-        "Save the " + format.toUpperCase() + " report to (full path):",
-        state.document.path.replace(/\.[^.]+$/, "") + "." + format
-      );
+      const suggested =
+        state.document.path.replace(/\.[^.]+$/, "") + "." + format;
+
+      // The desktop shell has a native save dialog. A browser tab
+      // falls back to a prompt. The two are not interchangeable: the
+      // embedded browser engine has no prompt implementation, so
+      // calling one there would hang the window.
+      let target = null;
+      if (nativeApi()) {
+        target = await pickSavePath(suggested, format);
+      } else {
+        target = window.prompt(
+          "Save the " + format.toUpperCase() + " report to (full path):",
+          suggested
+        );
+      }
       if (!target) return;
       try {
         const result = await api(
