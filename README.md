@@ -10,10 +10,14 @@ Everything runs on the machine it is started on. No document content is
 uploaded, there is no telemetry, and the server binds to the loopback
 interface.
 
-[![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.1.0)
+[![Release v0.2.0](https://img.shields.io/badge/release-v0.2.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.2.0)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
+
+> **Version 0.2.0 runs as a program.** Since 0.2.0 there is a single
+> `AFP-Production-Studio.exe`: double-click it and a window opens. The
+> browser mode is still there if you want it.
 
 ## What it does
 
@@ -50,24 +54,40 @@ as a silent success.
 
 ## Getting started
 
-### From a release
+### The executable
 
-Download the source archive from the
-[releases page](https://github.com/andy846/AFP-Production-Studio/releases),
-or clone the repository:
+Download `AFP-Production-Studio.exe` from the
+[releases page](https://github.com/andy846/AFP-Production-Studio/releases)
+and double-click it. A window opens. There is no server to start, no
+port to remember and no browser tab to find.
+
+Windows shows an "Windows protected your PC" banner, because the
+executable is not code-signed. Choose **More info** and **Run anyway**.
+
+Inside the window, **Browse** opens a native file dialog for the AFP
+file and for an external form definition, and the export button opens
+a native save dialog. The path boxes still accept typed paths.
+
+### From source
 
     git clone <this repository> AFP-Production-Studio
     cd AFP-Production-Studio
-    powershell -ExecutionPolicy Bypass -File scripts\run.ps1
+    powershell -ExecutionPolicy Bypass -File scripts\run.ps1 -Desktop
 
-Then open <http://127.0.0.1:8787>. The full instructions, including the
-optional Java cross-check parser, are in
-[`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md).
-
-The script creates a virtual environment, installs the pinned
-dependencies and starts the server. Python 3.11 or newer is the only
+opens the same window from a virtual environment. Drop the `-Desktop`
+switch and the script serves the application in a browser at
+<http://127.0.0.1:8787> instead. Python 3.11 or newer is the only
 requirement; a JDK 21 is needed only for the optional Java cross-check
 parser.
+
+The full instructions are in
+[`docs/SETUP_WINDOWS.md`](docs/SETUP_WINDOWS.md).
+
+### Building the executable
+
+    python scripts\build_exe.py
+
+The result is `dist\AFP-Production-Studio.exe`.
 
 ### Trying it without a customer file
 
@@ -87,20 +107,23 @@ and rendered locally.
     ├── backend/
     │   ├── afpstudio/
     │   │   ├── api/               the local HTTP API
+    │   │   ├── desktop.py         the native window shell
     │   │   ├── document_model/    the unified document model
     │   │   ├── parser_adapters/   the versioned JSON contract and the Java runner
     │   │   ├── preflight/         the MO:DCA media walk and the preflight engine
     │   │   ├── printer_profiles/  the profile schema, the rules and the sample
     │   │   ├── reports/           statistics, exports and the control report
+    │   │   ├── resources.py       where the templates live, source tree or frozen
     │   │   ├── security/          paths, headers, CSRF
     │   │   ├── testing/           synthetic AFP builders
     │   │   └── viewer/            the streaming index, the lazy renderer, the cache
+    │   ├── afpstudio_launcher.py  the entry point of the frozen build
     │   └── vendor/readafp/        the MIT licensed viewer foundation, pinned
     ├── frontend/                  Jinja templates and vanilla JavaScript, no CDN
     ├── alpheus-adapter/           the GPL Java adapter that fronts Alpheus
     ├── tests/                     unit, integration, security and end to end
     ├── docs/                      licence, security, contract and upstream notes
-    └── scripts/                   setup and launch
+    └── scripts/                   setup, launch and the PyInstaller build
 
 Two design decisions shape everything else:
 
@@ -112,6 +135,9 @@ Two design decisions shape everything else:
    replays only the state a page depends on. The result was checked
    against the upstream whole-document render for all 178 corpus
    samples, byte for byte.
+3. **The window and the browser are the same application.**
+   `afpstudio.desktop` runs the same server on an ephemeral loopback
+   port inside a native window. The executable is that, frozen.
 
 ## Testing
 
