@@ -70,6 +70,10 @@ class JobContext:
     def __init__(self, job: Job, cancel: threading.Event) -> None:
         self.job = job
         self._cancel = cancel
+        self._cancel_cleanup = None
+
+    def on_cancel(self, callback: Callable[[], None]) -> None:
+        self._cancel_cleanup = callback
 
     @property
     def cancelled(self) -> bool:
@@ -134,12 +138,21 @@ class JobManager:
             job.state = RUNNING
             context = JobContext(job, cancel or threading.Event())
             result = work(context)
-            if context.cancelled:
+            with self._lock:
+                cancelled = context.cancelled
+                if not cancelled:
+                    job.result = result
+                    job.state = COMPLETED
+                    job.message = "Done."
+                    job.finished = datetime.now(timezone.utc).isoformat()
+                    job.progress = 1.0
+            if cancelled:
+                if context._cancel_cleanup:
+                    context._cancel_cleanup()
                 self._finish(job_id, CANCELLED, "Cancelled by the operator.")
-            else:
-                job.result = result
-                self._finish(job_id, COMPLETED, "Done.")
         except JobCancelled:
+            if context._cancel_cleanup:
+                context._cancel_cleanup()
             self._finish(job_id, CANCELLED, "Cancelled by the operator.")
         except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
             job = self.get(job_id)
@@ -179,13 +192,11 @@ class JobManager:
         with self._lock:
             job = self._jobs.get(job_id)
             cancel = self._cancel.get(job_id)
-        if job is None or cancel is None:
-            return False
-        if job.state in TERMINAL_STATES:
-            return False
-        cancel.set()
-        job.message = "Cancellation requested."
-        return True
+            if job is None or cancel is None or job.state in TERMINAL_STATES:
+                return False
+            cancel.set()
+            job.message = "Cancellation requested."
+            return True
 
     def prune(self, keep: int = 50) -> None:
         """Drop the oldest finished jobs so the table cannot grow forever."""

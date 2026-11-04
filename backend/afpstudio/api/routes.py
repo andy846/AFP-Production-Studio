@@ -211,7 +211,9 @@ def open_document():
             adapter_error=adapter_error,
             incomplete=incomplete,
             parser=parser_name,
+            check_cancelled=context.check_cancelled,
         )
+        context.on_cancel(lambda: store.close(session_doc.document_id))
         return session_doc.summary()
 
     job = _jobs().submit(

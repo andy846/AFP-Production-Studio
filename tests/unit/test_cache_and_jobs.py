@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import threading
 
 from afpstudio.viewer.cache import PageCache
 from afpstudio.viewer.jobs import CANCELLED, COMPLETED, FAILED, JobManager
@@ -86,6 +87,27 @@ def test_job_can_be_cancelled():
         time.sleep(0.01)
     assert manager.cancel(job.id) is True
     assert wait_for(job) == CANCELLED
+
+
+def test_cancelled_job_cleans_up_published_document():
+    manager = JobManager(1)
+    published = threading.Event()
+    release = threading.Event()
+    sessions = {"document"}
+
+    def work(context):
+        context.on_cancel(lambda: sessions.discard("document"))
+        published.set()
+        assert release.wait(5)
+        return "document"
+
+    job = manager.submit("test", "work", work)
+    assert published.wait(5)
+    assert manager.cancel(job.id)
+    release.set()
+    assert wait_for(job) == CANCELLED
+    assert not sessions
+    assert job.result is None
 
 
 def test_job_reports_progress():

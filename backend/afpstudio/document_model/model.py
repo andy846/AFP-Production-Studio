@@ -255,14 +255,20 @@ class DocumentStore:
         resource_report: list[dict[str, Any]] | None = None,
         incomplete: bool = False,
         parser: str = "studio",
+        check_cancelled=None,
     ) -> DocumentSession:
         """Index, analyse and preflight a document."""
         path = Path(path)
+        check = check_cancelled or (lambda: None)
+        check()
         index = build_index(path, progress=progress)
+        check()
         analysis = analyse_media(index, path)
+        check()
 
         external: dict[str, MediumMapDefinition] = {}
         for form_def in form_defs or ():
+            check()
             external.update(load_form_definitions(Path(form_def)))
 
         resources = (
@@ -296,6 +302,7 @@ class DocumentStore:
             implicit_pages=max(0, renderer.page_count - index.page_count),
             parser=parser,
         )
+        check()
 
         session = DocumentSession(
             document_id=uuid.uuid4().hex,
