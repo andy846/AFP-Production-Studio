@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import pytest
 
 from afpstudio.security.csrf import HEADER_NAME
 from afpstudio.testing import synthetic
@@ -120,6 +121,22 @@ def test_an_export_may_not_overwrite_the_source(app_client, tmp_path):
     response = app_client.post(
         f"/api/documents/{summary['document_id']}/export",
         json={"format": "csv", "path": str(path)},
+        headers={HEADER_NAME: token},
+    )
+    assert response.status_code == 400
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("fmt", ["csv", "xlsx"])
+def test_export_suffix_cannot_overwrite_source(app_client, tmp_path, fmt):
+    path = tmp_path / ("job." + fmt)
+    original = synthetic.simplex_document(2)
+    path.write_bytes(original)
+    summary = open_document(app_client, path)
+    token = app_client.get("/api/csrf").get_json()["token"]
+    response = app_client.post(
+        f"/api/documents/{summary['document_id']}/export",
+        json={"format": fmt, "path": str(tmp_path / "job.other")},
         headers={HEADER_NAME: token},
     )
     assert response.status_code == 400

@@ -290,9 +290,14 @@ def document_fields(document_id: str):
     if error:
         return error
     page_arg = request.args.get("page")
-    page = int(page_arg) if page_arg not in (None, "") else None
-    limit = min(int(request.args.get("limit", 2000)), 20000)
-    offset = max(0, int(request.args.get("offset", 0)))
+    try:
+        page = int(page_arg) if page_arg not in (None, "") else None
+        limit = min(int(request.args.get("limit", 2000)), 20000)
+        offset = max(0, int(request.args.get("offset", 0)))
+        if limit < 1 or (page is not None and page < 0):
+            raise ValueError
+    except ValueError:
+        return _error("Invalid page, limit or offset.", 400, "invalid_request")
     rows = document.fields(page=page, limit=limit, offset=offset)
     return jsonify(
         {
@@ -353,12 +358,19 @@ def export_report(document_id: str):
     payload = request.get_json(silent=True) or {}
     fmt = str(payload.get("format", "csv")).lower()
     raw_path = payload.get("path")
+    if fmt not in ("csv", "xlsx"):
+        return _error("Only 'csv' and 'xlsx' exports are supported.", 400, "bad_format")
     try:
+        suffix = "." + fmt
+        safe_output_path(raw_path, _config().allowed_roots(), source=document.path)
+        final_path = Path(str(raw_path)).with_suffix(suffix) if raw_path else raw_path
         target = safe_output_path(
-            raw_path, _config().allowed_roots(), source=document.path
+            final_path, _config().allowed_roots(), source=document.path
         )
-    except PathError as exc:
+    except (PathError, ValueError) as exc:
         return _error(str(exc), 400, "invalid_path")
+    if target.exists() and payload.get("overwrite") is not True:
+        return _error("Output file already exists; confirmation required.", 409, "overwrite_required")
 
     stats = build_statistics(
         document.preflight,
@@ -381,8 +393,6 @@ def export_report(document_id: str):
             "Only 'csv' and 'xlsx' exports are supported.", 400, "bad_format"
         )
 
-    if target.suffix.lower() != suffix:
-        target = target.with_suffix(suffix)
     try:
         atomic_write_bytes(target, data)
     except OSError as exc:

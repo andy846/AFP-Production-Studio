@@ -431,6 +431,8 @@ def _effective_invokes(
     invokes = sorted(analysis.invokes, key=lambda r: r.offset)
     page_starts = list(index.page_starts)
     effective: list[dict[str, Any]] = []
+    cursor = 0
+    carried = None
     for page_index in range(len(page_starts)):
         start = page_starts[page_index]
         end = (
@@ -438,16 +440,16 @@ def _effective_invokes(
             if page_index < len(index.page_ends)
             else None
         )
-        carried = None
         inside = None
-        for record in invokes:
-            if record.offset < start:
-                carried = record
-            elif end is not None and record.offset < end:
-                inside = record
-            else:
-                break
+        while cursor < len(invokes) and invokes[cursor].offset < start:
+            carried = invokes[cursor]
+            cursor += 1
+        while cursor < len(invokes) and end is not None and invokes[cursor].offset < end:
+            inside = invokes[cursor]
+            cursor += 1
         chosen = inside or carried
+        if inside is not None:
+            carried = inside
         effective.append(
             {
                 "record": chosen,

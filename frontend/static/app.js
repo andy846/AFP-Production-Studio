@@ -402,8 +402,11 @@
     return { width: width, height: height };
   }
 
+  let pageRequest = 0;
   async function showPage(page) {
     if (!state.document) return;
+    const requestId = ++pageRequest;
+    const documentId = state.document.document_id;
     const total = state.document.page_count || 1;
     const clamped = Math.min(Math.max(1, page), total);
     state.page = clamped;
@@ -420,7 +423,9 @@
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error("The page could not be rendered.");
-      holder.innerHTML = await response.text();
+      const svg = await response.text();
+      if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
+      holder.innerHTML = svg;
       // The first page is fitted to the stage; after that the operator's
       // own zoom is kept.
       if (state.zoomFitted) {
@@ -433,6 +438,7 @@
       renderDetails(clamped);
       if (state.tab === "structure") loadStructurePage(clamped);
     } catch (err) {
+      if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
       holder.textContent = "";
       $("viewer-empty").hidden = false;
       $("viewer-empty").textContent = err.message;

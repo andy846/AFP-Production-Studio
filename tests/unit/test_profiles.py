@@ -97,6 +97,14 @@ def test_store_refuses_a_traversing_name(tmp_path):
         store.load("../secrets")
 
 
+@pytest.mark.parametrize("name", ["../secrets", "..\\secrets", "/absolute", "C:\\absolute", "bad:name", "."])
+def test_save_refuses_unsafe_names(tmp_path, name):
+    store = ProfileStore(tmp_path / "profiles")
+    profile = {"schema_version": "1.0", "printer_profile": "Mine", "media_maps": {}, "rules": []}
+    with pytest.raises(ProfileError):
+        store.save(name, profile)
+
+
 def test_a_broken_profile_does_not_break_the_list(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     store.ensure_sample()

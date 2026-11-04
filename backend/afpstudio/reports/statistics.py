@@ -154,6 +154,13 @@ def _estimate_sheets(pages: list[Any]) -> Quantity:
             "The document has no pages, so it needs no sheets.",
         )
 
+    copy_counts = {page.requested.copies for page in pages}
+    if None in copy_counts or len(copy_counts) != 1:
+        return Quantity(None, UNKNOWN, "Copy counts are missing or vary; sheet boundaries cannot be established reliably.")
+    boundaries = {(page.document_id, page.medium_map) for page in pages}
+    if len(boundaries) != 1:
+        return Quantity(None, UNKNOWN, "Document or medium map changes make sheet boundaries uncertain.")
+
     groups: list[list[Any]] = []
     for page in pages:
         duplex = page.requested.duplex

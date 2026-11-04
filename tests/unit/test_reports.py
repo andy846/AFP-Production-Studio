@@ -13,6 +13,7 @@ from afpstudio.reports.statistics import (
     PARSED,
     UNKNOWN,
     build_statistics,
+    _estimate_sheets,
 )
 from afpstudio.testing import synthetic
 
@@ -46,6 +47,14 @@ def test_duplex_pages_share_a_sheet(indexed, permissive_profile):
         indexed, permissive_profile, synthetic.duplex_document(4)
     )
     assert stats.estimated_sheets.value == 2
+
+
+def test_mixed_copy_counts_are_unknown(indexed, permissive_profile):
+    _, preflight = statistics_for(indexed, permissive_profile, synthetic.duplex_document(4))
+    preflight.pages[2].requested.copies = 3
+    result = _estimate_sheets(preflight.pages)
+    assert result.basis == UNKNOWN
+    assert result.value is None
 
 
 def test_mailpieces_and_dispatch_are_unknown(indexed, permissive_profile):

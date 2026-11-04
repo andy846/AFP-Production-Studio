@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from ..resources import package_data_dir
+from ..security.paths import atomic_write_bytes
 from .schema import PrinterProfile, ProfileError, validate_profile
 
 SAMPLE_PROFILE = "sample_profile.json"
@@ -53,17 +55,21 @@ class ProfileStore:
     def save(self, name: str, data: dict) -> PrinterProfile:
         profile = validate_profile(data)
         self.directory.mkdir(parents=True, exist_ok=True)
-        target = self.directory / f"{name}.json"
-        target.write_text(
-            json.dumps(profile.as_dict(), indent=2) + "\n", encoding="utf-8"
-        )
+        target = self._path(name)
+        atomic_write_bytes(target, (json.dumps(profile.as_dict(), indent=2) + "\n").encode("utf-8"))
         return profile
 
-    def _resolve(self, name: str) -> Path:
-        safe = Path(name).name
-        if not safe or safe != name:
+    def _path(self, name: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,127}", name):
             raise ProfileError("Profile name must be a plain file name.")
-        path = self.directory / f"{safe}.json"
+        root = self.directory.resolve()
+        path = (root / f"{name}.json").resolve()
+        if path.parent != root:
+            raise ProfileError("Profile path is outside the profile directory.")
+        return path
+
+    def _resolve(self, name: str) -> Path:
+        path = self._path(name)
         if not path.exists():
             raise ProfileError(f"No printer profile named {name!r}.")
         return path
