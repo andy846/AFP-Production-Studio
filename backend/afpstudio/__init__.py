@@ -5,7 +5,7 @@ filesystem, the network or Flask at import time, so the individual
 subsystems can be unit tested without a running server.
 """
 
-__version__ = "0.2.2-dev"
+__version__ = "0.2.2"
 
 # Contract version spoken by the Alpheus adapter. Bump the minor part for
 # additive changes (new optional fields) and the major part whenever an
