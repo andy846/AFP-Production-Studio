@@ -4,6 +4,20 @@ All notable changes to this project are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [semantic versioning](https://semver.org/).
 
+## [0.2.1] — 2026-11-04 (UAT pre-release)
+
+* Refresh the desktop workspace with a light theme, collapsible panels,
+  page navigation, accessible controls and explicit report replacement confirmation.
+* Validate profile and final export paths and refuse source-file replacement.
+* Track medium-map invokes in a single pass; treat duplicate map names as unresolved.
+* Return unknown for sheet estimates with mixed or missing copy counts.
+* Clean up document sessions when a job is cancelled after opening.
+
+This is not a production release. Worker-pool limits, in-stage cancellation,
+dependency audit, 20,000-page performance and real printer/RIP reconciliation
+still require verification. The desktop UI and native dialogs need further
+interactive testing on the target company computer.
+
 ## [0.2.0] — 2026-11-04
 
 Studio is now a program instead of a server you have to start and a

@@ -10,10 +10,13 @@ Everything runs on the machine it is started on. No document content is
 uploaded, there is no telemetry, and the server binds to the loopback
 interface.
 
-[![Release v0.2.0](https://img.shields.io/badge/release-v0.2.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.2.0)
+[![Pre-release v0.2.1](https://img.shields.io/badge/pre--release-v0.2.1-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.2.1)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
+
+Version 0.2.1 is for development and UAT. Production approval requires
+further security, performance and printer/RIP reconciliation testing.
 
 > **Version 0.2.0 runs as a program.** Since 0.2.0 there is a single
 > `AFP-Production-Studio.exe`: double-click it and a window opens. The
