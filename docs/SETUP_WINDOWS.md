@@ -106,6 +106,21 @@ To allow another directory:
 The source AFP is only ever opened for reading. An export can never
 overwrite it.
 
+### Open AFP files from Windows Explorer
+
+With a build that supports file association, right-click an `.afp` file,
+choose **Open with**, then **Choose another app**. Browse to
+`AFP-Production-Studio.exe` and select **Always**. Windows controls the
+default application; Studio does not change it automatically. After
+that, double-clicking an AFP file starts the desktop viewer and opens
+the selected file. Move the executable to its permanent location before
+setting the association.
+
+For a local file outside the configured allowed roots, this launch grants
+access only to that selected file, not its containing folder. Network
+paths remain blocked. Importing other files and FormDefs still uses the
+normal allowed-root settings.
+
 ## Printer profiles
 
 Printer profiles live in

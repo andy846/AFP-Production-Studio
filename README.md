@@ -71,6 +71,10 @@ Inside the window, **Browse** opens a native file dialog for the AFP
 file and for an external form definition, and the export button opens
 a native save dialog. The path boxes still accept typed paths.
 
+Development builds after v0.2.1 can open an AFP file directly when
+Studio is set as the default `.afp` app in Windows. See the Windows
+setup guide for details. The published v0.2.1 EXE does not support this.
+
 ### From source
 
     git clone <this repository> AFP-Production-Studio

@@ -4,6 +4,12 @@ All notable changes to this project are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+* Open an AFP file passed to the desktop executable by Windows Explorer.
+  The launch grants access only to the selected local file; network
+  paths and other files outside the configured roots remain blocked.
+
 ## [0.2.1] — 2026-11-04 (UAT pre-release)
 
 * Refresh the desktop workspace with a light theme, collapsible panels,

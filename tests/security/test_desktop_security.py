@@ -49,6 +49,7 @@ def test_the_bridge_offers_no_way_to_open_a_document():
     public = [name for name in dir(DesktopBridge) if not name.startswith("_")]
     assert sorted(public) == [
         "attach",
+        "consume_startup_file",
         "pick_afp_file",
         "pick_form_definition",
         "save_report_file",
@@ -69,6 +70,32 @@ def test_a_chosen_path_still_has_to_pass_the_allow_list(tmp_path):
 
     with pytest.raises(PathError):
         resolve_under_roots(str(outside), [allowed])
+
+
+def test_launch_argument_authorizes_only_that_file(tmp_path, monkeypatch):
+    from afpstudio.app import create_app
+    from afpstudio.config import Config
+    from afpstudio.security.csrf import HEADER_NAME
+    from afpstudio.testing.synthetic import simplex_document
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    source = other_dir / "selected.afp"
+    other = other_dir / "neighbour.afp"
+    source.write_bytes(simplex_document(1))
+    other.write_bytes(simplex_document(1))
+    monkeypatch.setenv("AFP_STUDIO_ALLOWED_ROOTS", str(allowed))
+    monkeypatch.setenv("AFP_STUDIO_DATA_DIR", str(tmp_path / "data"))
+    app = create_app(Config(), startup_file=source.resolve())
+    with app.test_client() as client:
+        token = client.get("/api/csrf").get_json()["token"]
+        headers = {HEADER_NAME: token}
+        response = client.post("/api/documents/open", json={"path": str(other)}, headers=headers)
+        assert response.status_code == 400
+        response = client.post("/api/documents/open", json={"path": str(source)}, headers=headers)
+        assert response.status_code == 200
 
 
 def test_a_chosen_export_path_still_cannot_overwrite_the_source(tmp_path):

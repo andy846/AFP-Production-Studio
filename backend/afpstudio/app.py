@@ -23,7 +23,7 @@ from .viewer.jobs import JobManager
 FRONTEND_DIR = frontend_dir()
 
 
-def create_app(config: Config | None = None) -> Flask:
+def create_app(config: Config | None = None, startup_file=None) -> Flask:
     """Build the Flask application."""
     config = config or CONFIG
     config.ensure_dirs()
@@ -47,6 +47,7 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.extensions["studio"] = {
         "config": config,
+        "startup_file": startup_file,
         "documents": DocumentStore(PageCache(config.page_cache_bytes)),
         "jobs": JobManager(config.max_concurrent_jobs),
         "profiles": profiles,

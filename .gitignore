@@ -13,6 +13,8 @@ third_party/
 # PyInstaller build output
 build/
 dist/
+build-association/
+dist-association/
 /*.spec
 
 # Local configuration

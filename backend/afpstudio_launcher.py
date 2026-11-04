@@ -28,10 +28,8 @@ def main() -> int:
     # The frozen build is the desktop program: double-clicking it must
     # open the window, not serve a page for a browser that is not
     # there. "--web" asks for the browser mode instead.
-    if not argv:
-        argv = ["--desktop"]
-    elif argv[0] == "--web":
-        argv = []
+    if "--web" not in argv and "--desktop" not in argv:
+        argv = ["--desktop", *argv]
 
     return _run(argv)
 

@@ -133,9 +133,21 @@
     // The Browse buttons only work where the desktop shell provides a
     // native dialog. In a browser tab they are hidden, because there
     // is nothing behind them.
-    whenNativeReady(() => {
+    let startupHandled = false;
+    whenNativeReady(async () => {
       $("browse-button").hidden = false;
       $("browse-formdef-button").hidden = false;
+      if (startupHandled) return;
+      startupHandled = true;
+      try {
+        const path = await nativeApi().consume_startup_file();
+        if (path) {
+          $("path-input").value = path;
+          $("open-form").requestSubmit();
+        }
+      } catch (err) {
+        setStatus("Could not open startup file: " + err.message);
+      }
     });
 
     $("browse-button").addEventListener("click", async () => {

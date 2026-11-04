@@ -153,3 +153,14 @@ def test_closing_the_window_stops_the_server(fake_webview, desktop_env):
 
     with pytest.raises(Exception):
         urllib.request.urlopen(url, timeout=5)
+
+
+def test_desktop_exposes_startup_file_once(fake_webview, desktop_env, tmp_path):
+    from afpstudio.desktop import run_desktop
+
+    source = tmp_path / "document with spaces.afp"
+    source.write_bytes(b"example")
+    assert run_desktop(startup_file=str(source)) == 0
+    bridge = fake_webview["windows"][0].js_api
+    assert bridge.consume_startup_file() == str(source.resolve())
+    assert bridge.consume_startup_file() is None

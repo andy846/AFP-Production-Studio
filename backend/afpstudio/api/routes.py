@@ -142,7 +142,14 @@ def open_document():
     try:
         path = resolve_under_roots(raw_path, _config().allowed_roots())
     except PathError as exc:
-        return _error(str(exc), 400, "invalid_path")
+        startup = current_app.extensions["studio"].get("startup_file")
+        try:
+            candidate = resolve_under_roots(raw_path, [startup.parent]) if startup else None
+        except PathError:
+            candidate = None
+        if candidate is None or candidate != startup:
+            return _error(str(exc), 400, "invalid_path")
+        path = candidate
 
     config = _config()
     try:

@@ -18,10 +18,12 @@ left behind.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import Any
 
 from .app import create_app
 from .config import CONFIG, Config
+from .security.paths import PathError, resolve_under_roots
 
 #: The title of the native window.
 WINDOW_TITLE = "AFP Production Studio"
@@ -48,9 +50,17 @@ class DesktopBridge:
     convenience, never a way around the checks.
     """
 
-    def __init__(self, window: Any = None) -> None:
+    def __init__(self, window: Any = None, startup_file: str | None = None) -> None:
         self._window = window
         self._lock = threading.Lock()
+        self._startup_file = startup_file
+
+    def consume_startup_file(self) -> str | None:
+        """Return the launch argument once, without exposing it in a URL."""
+        with self._lock:
+            path = self._startup_file
+            self._startup_file = None
+            return path
 
     def attach(self, window: Any) -> None:
         """Remember the window so the dialogs have somewhere to open."""
@@ -126,8 +136,9 @@ class LocalServer:
     never collide.
     """
 
-    def __init__(self, config: Config | None = None) -> None:
+    def __init__(self, config: Config | None = None, startup_file: Path | None = None) -> None:
         self.config = config or CONFIG
+        self.startup_file = startup_file
         self._server: Any = None
         self._thread: threading.Thread | None = None
 
@@ -135,7 +146,7 @@ class LocalServer:
         """Start serving and return the URL the window should load."""
         from werkzeug.serving import make_server
 
-        app = create_app(self.config)
+        app = create_app(self.config, startup_file=self.startup_file)
         server = make_server("127.0.0.1", 0, app, threaded=True)
         self._server = server
         thread = threading.Thread(
@@ -164,7 +175,7 @@ class LocalServer:
         return getattr(self._server, "server_port", None)
 
 
-def run_desktop(config: Config | None = None) -> int:
+def run_desktop(config: Config | None = None, startup_file: str | None = None) -> int:
     """Open the application in a native window.
 
     Returns a process exit code: zero when the window was closed
@@ -182,12 +193,19 @@ def run_desktop(config: Config | None = None) -> int:
         )
         return 2
 
-    server = LocalServer(config)
+    approved_file = None
+    if startup_file and not startup_file.startswith("\\\\"):
+        try:
+            path = Path(startup_file).expanduser().resolve(strict=True)
+            approved_file = resolve_under_roots(startup_file, [path.parent])
+        except (OSError, ValueError, PathError):
+            pass
+    server = LocalServer(config, startup_file=approved_file)
     url = server.start()
     print(f"AFP Production Studio is serving on {url}")
     print("Close the window to stop it.")
 
-    bridge = DesktopBridge()
+    bridge = DesktopBridge(startup_file=str(approved_file) if approved_file else startup_file)
     window = webview.create_window(
         WINDOW_TITLE,
         url,
