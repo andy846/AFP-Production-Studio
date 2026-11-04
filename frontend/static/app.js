@@ -118,7 +118,9 @@
       const message =
         (payload && (payload.error || payload.message)) ||
         "Request failed (" + response.status + ").";
-      throw new Error(message);
+      const error = new Error(message);
+      error.code = payload && payload.code;
+      throw error;
     }
     return payload;
   }
@@ -159,6 +161,7 @@
       $("open-error").textContent = "";
       $("open-button").disabled = true;
       $("opener-progress").hidden = false;
+      $("opener-status").textContent = "Loading — preparing the document.";
       try {
         const body = {
           path: path,
@@ -256,6 +259,12 @@
   /* ------------------------------------------------------------------ */
 
   function initTabs() {
+    [["toggle-tree", "tree-collapsed"], ["toggle-details", "details-collapsed"]].forEach(([id, cls]) => {
+      $(id).addEventListener("click", () => {
+        const collapsed = $("workspace").classList.toggle(cls);
+        $(id).setAttribute("aria-expanded", String(!collapsed));
+      });
+    });
     document.querySelectorAll(".tab").forEach((button) => {
       button.addEventListener("click", () => {
         state.tab = button.dataset.tab;
@@ -325,6 +334,9 @@
         item.appendChild(el("span", "meta", media.medium_map));
       }
       item.addEventListener("click", () => showPage(page));
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); item.click(); } });
       tree.appendChild(item);
     }
     if (pages > limit) {
@@ -340,6 +352,8 @@
   /* ------------------------------------------------------------------ */
 
   function initViewer() {
+    $("page-prev").addEventListener("click", () => showPage((state.page || 1) - 1));
+    $("page-next").addEventListener("click", () => showPage((state.page || 1) + 1));
     $("page-first").addEventListener("click", () => showPage(1));
     $("page-last").addEventListener("click", () => {
       showPage(state.document ? state.document.page_count : 1);
@@ -405,6 +419,11 @@
   let pageRequest = 0;
   async function showPage(page) {
     if (!state.document) return;
+    if (!state.document.page_count) {
+      $("viewer-empty").hidden = false;
+      $("viewer-empty").textContent = "No pages were found in this document.";
+      return;
+    }
     const requestId = ++pageRequest;
     const documentId = state.document.document_id;
     const total = state.document.page_count || 1;
@@ -414,6 +433,8 @@
     $("viewer-empty").hidden = true;
     const holder = $("page-holder");
     holder.textContent = "";
+    $("viewer-empty").hidden = false;
+    $("viewer-empty").textContent = "Loading page " + clamped + "...";
     const url =
       "/api/documents/" +
       state.document.document_id +
@@ -426,6 +447,7 @@
       const svg = await response.text();
       if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
       holder.innerHTML = svg;
+      $("viewer-empty").hidden = true;
       // The first page is fitted to the stage; after that the operator's
       // own zoom is kept.
       if (state.zoomFitted) {
@@ -488,13 +510,14 @@
     const head = el("thead");
     const headRow = el("tr");
     ["#", "Offset", "Length", "Structured field", "Object", "Page"].forEach(
-      (title) => headRow.appendChild(el("th", title))
+      (title) => headRow.appendChild(el("th", null, title))
     );
     head.appendChild(headRow);
     table.appendChild(head);
     const body = el("tbody");
     fields.forEach((row) => {
       const tr = el("tr", "is-clickable");
+      tr.dataset.offset = String(row.offset);
       tr.appendChild(el("td", "num", row.index));
       tr.appendChild(el("td", "mono", row.offset));
       tr.appendChild(el("td", "num", row.length));
@@ -505,9 +528,14 @@
       );
       tr.addEventListener("click", () => {
         if (row.page !== null && row.page !== undefined) {
+          wrap.querySelectorAll("tr.is-selected").forEach((selected) => selected.classList.remove("is-selected"));
+          tr.classList.add("is-selected");
           showPage(row.page + 1);
+          setStatus("Structured field " + row.name + " at byte offset " + row.offset + ".");
         }
       });
+      tr.tabIndex = 0;
+      tr.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); tr.click(); } });
       body.appendChild(tr);
     });
     table.appendChild(body);
@@ -542,7 +570,8 @@
       preflight.filename + " — " + preflight.status;
 
     preflight.pages.forEach((page) => {
-      const run = el("div", "timeline-run", page.medium_map || "—");
+      const run = el("button", "timeline-run", page.medium_map || "—");
+      run.type = "button";
       run.dataset.status = page.status;
       run.title =
         "Page " + page.page_number + " — " + (page.medium_map || "no map");
@@ -563,7 +592,7 @@
       "Duplex",
       "Status",
       "Findings"
-    ].forEach((title) => headRow.appendChild(el("th", title)));
+    ].forEach((title) => headRow.appendChild(el("th", null, title)));
     head.appendChild(headRow);
     table.appendChild(head);
     const body = el("tbody");
@@ -594,11 +623,23 @@
       if (page.findings.length) {
         const list = el("ul", "finding-list");
         page.findings.forEach((finding) => {
-          const item = el("li", null, finding.code + ": " + finding.message);
-          item.addEventListener("click", (event) => {
+          const item = el("li");
+          const link = el("button", "finding-link", finding.code + ": " + finding.message);
+          link.type = "button";
+          link.addEventListener("click", async (event) => {
             event.stopPropagation();
-            if (finding.page) showPage(finding.page);
+            const selectedPage = finding.page || page.page_number;
+            await showPage(selectedPage);
+            if (finding.offset !== null && finding.offset !== undefined) {
+              document.querySelector('[data-tab="structure"]').click();
+              await loadStructurePage(selectedPage);
+              const field = Array.from($("structure-table").querySelectorAll("tr[data-offset]"))
+                .find((row) => row.dataset.offset === String(finding.offset));
+              if (field) { field.classList.add("is-selected"); field.scrollIntoView({ block: "nearest" }); field.focus(); }
+              else setStatus("Field at offset " + finding.offset + " is outside the current page's displayed fields.");
+            }
           });
+          item.appendChild(link);
           list.appendChild(item);
         });
         findings.appendChild(list);
@@ -607,6 +648,8 @@
       }
       tr.appendChild(findings);
       tr.addEventListener("click", () => showPage(page.page_number));
+      tr.tabIndex = 0;
+      tr.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); tr.click(); } });
       body.appendChild(tr);
     });
     table.appendChild(body);
@@ -694,6 +737,9 @@
     addRes("Verified", media.resolved.verified ? "yes" : "no");
     box.appendChild(resolved);
 
+    box.appendChild(el("div", "section-title", "Actual media"));
+    box.appendChild(el("p", "empty-note", "Unknown — no printer or RIP evidence available."));
+
     box.appendChild(el("div", "section-title", "Status"));
     const pill = el("span", "status-pill", media.status);
     pill.dataset.status = media.status;
@@ -729,7 +775,7 @@
     const head = el("thead");
     const headRow = el("tr");
     ["Kind", "Name", "Detail"].forEach((title) =>
-      headRow.appendChild(el("th", title))
+      headRow.appendChild(el("th", null, title))
     );
     head.appendChild(headRow);
     table.appendChild(head);
@@ -812,7 +858,7 @@
     const head = el("thead");
     const headRow = el("tr");
     ["Medium map", "Pages", "Paper stock", "Tray", "Copies"].forEach((title) =>
-      headRow.appendChild(el("th", title))
+      headRow.appendChild(el("th", null, title))
     );
     head.appendChild(headRow);
     usageTable.appendChild(head);
@@ -834,7 +880,7 @@
     const thead = el("thead");
     const thr = el("tr");
     ["Page", "From", "To", "Offset"].forEach((title) =>
-      thr.appendChild(el("th", title))
+      thr.appendChild(el("th", null, title))
     );
     thead.appendChild(thr);
     transitionTable.appendChild(thead);
@@ -850,13 +896,14 @@
     transitionTable.appendChild(tbody);
     box.appendChild(transitionTable);
 
-    box.appendChild(el("h3", null, "Production control report"));
+    box.appendChild(el("h3", null, "Production control report template"));
+    box.appendChild(el("p", "empty-note", "Template only. External production evidence and sign-off are not recorded."));
     const control = state.report.control_report;
     const controlTable = el("table");
     const cthead = el("thead");
     const cthr = el("tr");
     ["Stage", "Status", "Value", "Basis", "Note"].forEach((title) =>
-      cthr.appendChild(el("th", title))
+      cthr.appendChild(el("th", null, title))
     );
     cthead.appendChild(cthr);
     controlTable.appendChild(cthead);
@@ -1019,6 +1066,17 @@
   /* ------------------------------------------------------------------ */
 
   function initExport() {
+    function confirmOverwrite(path) {
+      const dialog = $("overwrite-dialog");
+      $("overwrite-path").textContent = path;
+      return new Promise((resolve) => {
+        const finish = (accepted) => { dialog.close(); resolve(accepted); };
+        $("overwrite-cancel").onclick = () => finish(false);
+        $("overwrite-confirm").onclick = () => finish(true);
+        dialog.oncancel = (event) => { event.preventDefault(); finish(false); };
+        dialog.showModal();
+      });
+    }
     const doExport = async (format) => {
       if (!state.document) return;
       const suggested =
@@ -1045,7 +1103,15 @@
         );
         setStatus("Report written to " + result.path);
       } catch (err) {
-        setStatus(err.message);
+        if (err.code !== "overwrite_required") { setStatus(err.message); return; }
+        const finalPath = target.replace(/\.[^./\\]+$/, "") + "." + format;
+        if (!(await confirmOverwrite(finalPath))) { setStatus("Export cancelled."); return; }
+        try {
+          const result = await api("/api/documents/" + state.document.document_id + "/export", {
+            method: "POST", body: { format: format, path: target, overwrite: true }
+          });
+          setStatus("Report written to " + result.path);
+        } catch (retryError) { setStatus(retryError.message); }
       }
     };
     $("export-csv").addEventListener("click", () => doExport("csv"));

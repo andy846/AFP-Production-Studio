@@ -7,6 +7,7 @@
   <title>AFP Production Studio</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='studio-light.css') }}">
 </head>
 <body>
   <header class="masthead">
@@ -31,6 +32,7 @@
 
   <section class="opener" id="opener">
     <div class="opener-inner">
+      <div class="eyebrow">LOCAL PRODUCTION WORKSPACE <span>01 / OPEN JOB</span></div>
       <h1>Open an AFP file</h1>
       <p class="opener-lead">
         Studio reads the file from disk, indexes it once and renders pages
@@ -38,7 +40,7 @@
         modified.
       </p>
       <form id="open-form" class="opener-form">
-        <label for="path-input">Path on this machine</label>
+        <label for="path-input">01 &nbsp; AFP document <span class="field-hint">Required</span></label>
         <div class="path-row">
           <input id="path-input" name="path" type="text" spellcheck="false"
                  autocomplete="off" placeholder="C:\Users\...\job.afp">
@@ -47,11 +49,11 @@
         </div>
         <div class="opener-row">
           <label class="field">
-            <span>Printer profile</span>
+            <span>02 &nbsp; Printer profile <small>Optional</small></span>
             <select id="profile-select"><option value="">none</option></select>
           </label>
           <label class="field">
-            <span>External form definition</span>
+            <span>03 &nbsp; External form definition <small>Optional</small></span>
             <div class="path-row">
               <input id="formdef-input" type="text" spellcheck="false"
                      autocomplete="off" placeholder="optional .afp path">
@@ -71,23 +73,25 @@
       </form>
       <div class="opener-progress" id="opener-progress" hidden>
         <div class="bar"><span id="opener-bar"></span></div>
-        <span id="opener-status">queued</span>
+        <span id="opener-status" role="status" aria-live="polite">queued</span>
         <button type="button" class="ghost" id="cancel-open">Cancel</button>
       </div>
     </div>
   </section>
 
   <nav class="tabs" id="tabs" hidden>
+    <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer">Viewer</button>
     <button class="tab" data-tab="structure">Structure</button>
     <button class="tab" data-tab="preflight">Media Preflight</button>
     <button class="tab" data-tab="resources">Resources</button>
     <button class="tab" data-tab="report">Production Report</button>
     <button class="tab" data-tab="settings">Settings</button>
+    <button type="button" class="panel-toggle details-toggle" id="toggle-details" aria-controls="details-panel" aria-expanded="true">Page details</button>
   </nav>
 
   <main class="workspace" id="workspace" hidden>
-    <aside class="panel tree-panel">
+    <aside class="panel tree-panel" id="tree-panel">
       <div class="panel-head">
         <h2>AFP tree</h2>
         <button class="ghost small" id="close-document" title="Close the document">Close</button>
@@ -108,10 +112,12 @@
           <button class="ghost small" id="zoom-in" title="Zoom in">+</button>
           <button class="ghost small" id="zoom-fit">Fit</button>
           <span class="pager">
-            <button class="ghost small" id="page-first">&laquo;</button>
-            <input id="page-number" type="number" min="1" value="1">
+            <button class="ghost small" id="page-first" title="First page" aria-label="First page">&laquo;</button>
+            <button class="ghost small" id="page-prev" title="Previous page" aria-label="Previous page">&lsaquo;</button>
+            <input id="page-number" type="number" min="1" value="1" aria-label="Page number">
             <span id="page-total">/ 0</span>
-            <button class="ghost small" id="page-last">&raquo;</button>
+            <button class="ghost small" id="page-next" title="Next page" aria-label="Next page">&rsaquo;</button>
+            <button class="ghost small" id="page-last" title="Last page" aria-label="Last page">&raquo;</button>
           </span>
         </div>
       </div>
@@ -165,7 +171,7 @@
       <div class="settings" id="settings-body"></div>
     </section>
 
-    <aside class="panel details-panel">
+    <aside class="panel details-panel" id="details-panel">
       <div class="panel-head">
         <h2>Page details</h2>
       </div>
@@ -173,8 +179,15 @@
     </aside>
   </main>
 
+  <dialog id="overwrite-dialog" aria-labelledby="overwrite-title">
+    <h2 id="overwrite-title">Replace existing report?</h2>
+    <p>The selected report already exists. Replacing it cannot be undone.</p>
+    <p id="overwrite-path" class="overwrite-path"></p>
+    <div class="dialog-actions"><button type="button" id="overwrite-cancel">Cancel</button><button type="button" class="primary" id="overwrite-confirm">Replace report</button></div>
+  </dialog>
+
   <footer class="statusbar">
-    <span id="status-message">Ready.</span>
+    <span id="status-message" role="status" aria-live="polite">Ready.</span>
     <span class="spacer"></span>
     <span id="status-cache"></span>
   </footer>

@@ -143,6 +143,23 @@ def test_export_suffix_cannot_overwrite_source(app_client, tmp_path, fmt):
     assert path.read_bytes() == original
 
 
+def test_export_requires_explicit_confirmation_to_replace_report(app_client, tmp_path):
+    path = tmp_path / "job.afp"
+    path.write_bytes(synthetic.simplex_document(2))
+    target = tmp_path / "existing.csv"
+    target.write_text("original", encoding="utf-8")
+    summary = open_document(app_client, path)
+    token = app_client.get("/api/csrf").get_json()["token"]
+    endpoint = f"/api/documents/{summary['document_id']}/export"
+    payload = {"format": "csv", "path": str(target)}
+    response = app_client.post(endpoint, json=payload, headers={HEADER_NAME: token})
+    assert response.status_code == 409
+    assert target.read_text(encoding="utf-8") == "original"
+    response = app_client.post(endpoint, json={**payload, "overwrite": True}, headers={HEADER_NAME: token})
+    assert response.status_code == 200
+    assert "Total AFP pages" in target.read_text(encoding="utf-8-sig")
+
+
 def test_an_invalid_afp_does_not_crash_the_application(app_client, tmp_path):
     path = tmp_path / "broken.afp"
     path.write_bytes(b"\x00\x01\x02 not an afp file at all")
