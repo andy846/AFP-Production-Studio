@@ -628,13 +628,17 @@ def run_preflight(
         definition = None
         definition_source = "none"
         if invoke_name:
-            definition = analysis.medium_maps.get(invoke_name)
+            definition = analysis.medium_maps.get(invoke_name) if invoke_name not in analysis.ambiguous_maps else None
             if definition is not None:
                 definition_source = "document"
-            else:
+            elif invoke_name not in analysis.ambiguous_maps:
                 definition = external_definitions.get(invoke_name)
                 if definition is not None:
                     definition_source = "external_form_def"
+            if invoke_name in analysis.ambiguous_maps:
+                findings.append(Finding(code="AMBIGUOUS_MEDIUM_MAP", status=STATUS_UNRESOLVED,
+                    message="Multiple medium maps share this name; the applicable definition is unknown.",
+                    page=page_number, offset=record.offset, source="afp"))
 
         requested = _requested_for(
             definition,

@@ -269,7 +269,10 @@ class DocumentStore:
         external: dict[str, MediumMapDefinition] = {}
         for form_def in form_defs or ():
             check()
-            external.update(load_form_definitions(Path(form_def)))
+            definitions = load_form_definitions(Path(form_def))
+            if external.keys() & definitions.keys():
+                raise ValueError("External form definitions contain duplicate medium map names.")
+            external.update(definitions)
 
         resources = (
             resource_report

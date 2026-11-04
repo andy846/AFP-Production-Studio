@@ -299,6 +299,7 @@ class MediaAnalysis:
     """Everything the media walk learned about a document."""
 
     medium_maps: dict[str, MediumMapDefinition] = field(default_factory=dict)
+    ambiguous_maps: set[str] = field(default_factory=set)
     invokes: list[InvokeRecord] = field(default_factory=list)
     form_maps: list[str] = field(default_factory=list)
     form_map_count: int = 0
@@ -510,7 +511,11 @@ def analyse_media(index: DocumentIndex, path: Path) -> MediaAnalysis:
                 )
                 medium_map_stack.append(definition)
                 if name:
-                    analysis.medium_maps[name] = definition
+                    if name in analysis.medium_maps or name in analysis.ambiguous_maps:
+                        analysis.medium_maps.pop(name, None)
+                        analysis.ambiguous_maps.add(name)
+                    else:
+                        analysis.medium_maps[name] = definition
                 else:
                     analysis.warnings.append(
                         {
@@ -630,4 +635,6 @@ def load_form_definitions(path: Path) -> dict[str, MediumMapDefinition]:
     path = Path(path)
     index = build_index(path)
     analysis = analyse_media(index, path)
+    if analysis.ambiguous_maps:
+        raise MediaParseError("External form definition contains duplicate medium map names.")
     return analysis.medium_maps

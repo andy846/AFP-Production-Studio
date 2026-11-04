@@ -32,6 +32,15 @@ def test_status_ranking():
     assert worst([]) == STATUS_PASS
 
 
+def test_ambiguous_medium_map_is_unresolved(indexed, permissive_profile):
+    path, index, analysis = indexed("ambiguous.afp", synthetic.simplex_document(2))
+    name = analysis.invokes[0].name
+    analysis.ambiguous_maps.add(name)
+    result = run_preflight(path, index, analysis, profile=permissive_profile)
+    assert all(page.status == STATUS_UNRESOLVED for page in result.pages)
+    assert "AMBIGUOUS_MEDIUM_MAP" in codes(result)
+
+
 def test_simplex_document_resolves(indexed, permissive_profile):
     path, index, analysis = indexed(
         "simplex.afp", synthetic.simplex_document(3)
