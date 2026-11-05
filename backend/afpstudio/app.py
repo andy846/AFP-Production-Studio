@@ -51,7 +51,7 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
         "startup_file": startup_file,
         "file_grants": file_grants or FileGrants(),
         "documents": DocumentStore(PageCache(config.page_cache_bytes)),
-        "jobs": JobManager(config.max_concurrent_jobs),
+        "jobs": JobManager(config.max_concurrent_jobs, timeout_seconds=config.job_timeout_seconds),
         "profiles": profiles,
         "alpheus": AlpheusAdapter(
             jar=config.adapter_jar,

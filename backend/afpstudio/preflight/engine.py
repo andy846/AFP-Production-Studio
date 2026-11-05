@@ -475,6 +475,7 @@ def run_preflight(
     incomplete: bool = False,
     implicit_pages: int = 0,
     parser: str = "studio",
+    check_cancelled=None,
 ) -> PreflightResult:
     """Run the full media preflight over an indexed document."""
     path = Path(path)
@@ -548,13 +549,15 @@ def run_preflight(
     for resource in missing_resources or ():
         result.findings.append(
             Finding(
-                code="MISSING_RESOURCE",
-                status=STATUS_FAIL,
-                message=(
+                code=resource.get("code", "MISSING_RESOURCE"),
+                status=resource.get("status", STATUS_FAIL),
+                page=resource.get("page"),
+                offset=resource.get("offset"),
+                message=resource.get("message") or (
                     f"The document references {resource.get('kind', 'resource')} "
                     f"{resource.get('name', '')!r} but does not embed it."
                 ),
-                source="afp",
+                source="inventory" if resource.get("code") == "EXTERNAL_RESOURCE_ATTESTED" else "afp",
                 detail=dict(resource),
             )
         )
@@ -620,6 +623,8 @@ def run_preflight(
     # -- per page -------------------------------------------------------
     previous_map: str | None = None
     for page_index in range(index.page_count):
+        if check_cancelled and page_index % 256 == 0:
+            check_cancelled()
         page_number = page_index + 1
         entry = effective[page_index] if page_index < len(effective) else None
         record = entry["record"] if entry else None

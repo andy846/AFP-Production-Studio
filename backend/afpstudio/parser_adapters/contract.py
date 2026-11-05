@@ -19,6 +19,8 @@ so Studio can point the operator at the exact structured field.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from array import array
+import math
 from typing import Any
 
 #: The contract version this build speaks.
@@ -31,7 +33,7 @@ ADAPTER_CONTRACT_VERSION = "1.0.0"
 class AdapterError(Exception):
     """Raised when the adapter cannot be used or returned nonsense."""
 
-    def __init__(self, message: str, code: str = "adapter_error") -> None:
+    def __init__(self, message: str, code: str = "invalid_result") -> None:
         super().__init__(message)
         self.code = code
 
@@ -121,6 +123,8 @@ class AdapterResult:
     medium_maps: list[AdapterMediumMap] = field(default_factory=list)
     invokes: list[AdapterInvoke] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    field_index: array | None = None
+    input_sha256: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -146,9 +150,9 @@ class AdapterResult:
 
 
 def _as_int(value: Any, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise AdapterError(f"Adapter result field {label!r} must be a number.")
-    return int(value)
+    if type(value) is not int or value < 0:
+        raise AdapterError(f"Adapter result field {label!r} must be a non-negative integer.")
+    return value
 
 
 def _as_optional_float(value: Any, label: str) -> float | None:
@@ -156,6 +160,7 @@ def _as_optional_float(value: Any, label: str) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise AdapterError(f"Adapter result field {label!r} must be a number.")
+    _require(math.isfinite(value), f"{label} must be finite.")
     return float(value)
 
 
@@ -178,6 +183,7 @@ def validate_result(data: Any) -> AdapterResult:
     )
 
     adapter = data.get("adapter") or {}
+    _require(isinstance(adapter, dict), "'adapter' must be an object.")
     document = data.get("document") or {}
     _require(isinstance(document, dict), "'document' must be an object.")
     _require(isinstance(data.get("complete"), bool), "Adapter result requires a boolean 'complete' field.")
@@ -310,6 +316,20 @@ def compare_with_local(
         )
 
     if index is not None:
+        if adapter.field_index is not None:
+            fields = adapter.field_index
+            for i in range(max(index.field_count, len(fields) // 4)):
+                local = (int(index.offsets[i]), int(index.lengths[i]), int(index.sf_ids[i]),
+                         int(index.pages[i]) + 1 if index.in_page[i] else 0) if i < index.field_count else None
+                remote = tuple(fields[i * 4:i * 4 + 4]) if i * 4 < len(fields) else None
+                if local != remote:
+                    entry = local or remote
+                    disagreements.append({"kind": "structured_field", "offset": entry[0],
+                        "page": entry[3] or None, "local": local, "adapter": remote,
+                        "message": "Independent parsers disagree on field offset, length, identifier or page association."})
+                    if len(disagreements) >= 1000:
+                        disagreements.append({"kind": "comparison_limit", "message": "Comparison stopped after 1000 differences; results are incomplete."})
+                        break
         for page in adapter.pages:
             number = page.page_number
             if page.offset is None or number < 1 or number > len(index.page_starts):

@@ -138,3 +138,29 @@ def test_concurrent_jobs_are_bounded():
     for job in jobs:
         wait_for(job)
     assert max(peak) <= 1
+
+
+def test_queue_does_not_create_one_thread_per_job():
+    manager = JobManager(2)
+    release = threading.Event()
+    baseline = {t.ident for t in threading.enumerate()}
+    jobs = [manager.submit("test", "queued", lambda ctx: release.wait(3)) for _ in range(30)]
+    added = [t for t in threading.enumerate() if t.ident not in baseline and t.name.startswith("afp-job")]
+    release.set()
+    for job in jobs:
+        assert wait_for(job) == COMPLETED
+    assert len(added) <= 2
+
+
+def test_cooperative_deadline_fails_and_cleans_up():
+    manager = JobManager(1, timeout_seconds=.05)
+    cleanup = threading.Event()
+    def work(ctx):
+        ctx.on_cancel(cleanup.set)
+        while True:
+            time.sleep(.01)
+            ctx.check_cancelled()
+    job = manager.submit("test", "timeout", work)
+    assert wait_for(job) == FAILED
+    assert "deadline" in job.error.lower()
+    assert cleanup.is_set()

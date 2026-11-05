@@ -66,6 +66,8 @@ def _read_fields(
 ) -> list[StructuredField]:
     """Read the selected fields, one seek per contiguous run."""
     fields: list[StructuredField] = []
+    if sum(index.lengths[i] for i in selection) > 128 * 1024 * 1024:
+        raise RenderError("Page replay exceeds the 128 MiB input limit. This page cannot be previewed safely.")
     i = 0
     total = len(selection)
     while i < total:
@@ -143,6 +145,28 @@ class PageRenderer:
         return self.index.page_count + len(self._extra_pages())
 
     # -- rendering -------------------------------------------------------
+
+    def text_runs(self, page: int, *, codepage: str):
+        """Positioned preview text; offsets identify PTX fields, not glyph bytes."""
+        if codepage not in ("cp037", "cp500"):
+            raise ValueError("Select a supported fallback code page explicitly.")
+        if page < 0 or page >= self.index.page_count:
+            raise RenderError("Text extraction currently requires an explicitly bracketed page.")
+        with self.path.open("rb") as handle:
+            fields = _read_fields(handle, self.index, select_replay_fields(self.index, page))
+        pages = extract_pages(fields, codepage, self.embed_small_fonts)
+        if not pages:
+            raise RenderError("No page text model was produced.")
+        model = pages[0]
+        runs = model.texts + model.text_layer
+        items = [{"text": run.text, "x": run.x, "y": run.y, "font_id": run.font_id,
+            "font_family": run.font_family, "font_size": run.font_size, "orientation": run.orientation,
+            "page": page + 1, "offset": run.src, "offset_kind": "structured_field"} for run in runs]
+        return {"items": items, "basis": "readAFP_preview", "fallback_codepage": codepage,
+                "codepage_basis": "embedded_mapping_or_operator_fallback",
+                "units": "page_logical_units", "units_per_inch": model.units_per_inch,
+                "complete": not model.truncated and not self.index.truncated,
+                "coverage": "preview_text_runs_not_production_verified"}
 
     def render(self, page: int) -> str:
         """Return the SVG for the given zero based page number."""

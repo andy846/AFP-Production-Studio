@@ -78,7 +78,7 @@ def test_resource_index_reports_coverage_and_rejects_invalid_limit(app_client, t
     summary = open_document(app_client, path)
     endpoint = f"/api/documents/{summary['document_id']}/resource-dependencies"
     data = app_client.get(endpoint).get_json()
-    assert data["coverage"] == "partial_font_mapping"
+    assert data["coverage"] == "partial_font_mapping_and_named_includes"
     assert isinstance(data["items"], list)
     assert app_client.get(endpoint + "?limit=-1").status_code == 400
 
@@ -193,8 +193,8 @@ def test_changed_source_during_analysis_does_not_publish(tmp_path, monkeypatch):
     path.write_bytes(synthetic.simplex_document(2))
     original = model.analyse_media
 
-    def change_after_analysis(index, source):
-        result = original(index, source)
+    def change_after_analysis(index, source, **kwargs):
+        result = original(index, source, **kwargs)
         with source.open("ab") as handle:
             handle.write(b"changed")
         return result

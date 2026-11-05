@@ -34,6 +34,9 @@ import com.mgz.afp.parser.AFPParserConfiguration;
 import java.io.File;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,8 +103,8 @@ public final class AdapterMain {
       usage(System.err);
       System.exit(2);
     }
-    if (!"json".equalsIgnoreCase(format)) {
-      System.err.println("Only the 'json' output format is supported.");
+    if (!"json".equalsIgnoreCase(format) && !"jsonl".equalsIgnoreCase(format)) {
+      System.err.println("Only 'json' and 'jsonl' output formats are supported.");
       System.exit(2);
     }
 
@@ -112,9 +115,14 @@ public final class AdapterMain {
     }
 
     try {
-      String json = convert(file);
       PrintStream out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
-      out.print(json);
+      if ("jsonl".equalsIgnoreCase(format)) {
+        out.println("{\"type\":\"header\",\"contract_version\":\"2.0.0\",\"input_size\":"
+            + file.length() + ",\"input_sha256\":" + quote(digest(file)) + "}");
+        out.print(convert(file, out));
+      } else {
+        out.print(convert(file, null));
+      }
       out.flush();
     } catch (Exception e) {
       System.err.println("The Alpheus adapter failed: " + e);
@@ -127,7 +135,7 @@ public final class AdapterMain {
   }
 
   /** Parse the file and build the JSON document. */
-  static String convert(File file) throws Exception {
+  static String convert(File file, PrintStream stream) throws Exception {
     AFPParserConfiguration config = new AFPParserConfiguration();
     config.setAFPFile(file);
     // A malformed field must not stop the run: the errors are reported and
@@ -142,6 +150,8 @@ public final class AdapterMain {
     long fieldCount = 0;
     int documentCount = 0;
     int currentPage = -1;
+    boolean pageOpen = false;
+    MessageDigest fieldDigest = MessageDigest.getInstance("SHA-256");
     Map<String, MapRecord> openMaps = new LinkedHashMap<>();
     String currentFormMap = null;
 
@@ -151,6 +161,20 @@ public final class AdapterMain {
       while ((sf = parser.parseNextSF()) != null) {
         fieldCount++;
         try {
+          var intro = sf.getStructuredFieldIntroducer();
+          SFTypeID fieldType = intro.getSFTypeID();
+          if (fieldType == SFTypeID.BPG_BeginPage) pageOpen = true;
+          if (stream != null) {
+            byte[] id = intro.getRawSfTypeID();
+            if (id == null) id = fieldType.toBytes();
+            int fieldId = (Byte.toUnsignedInt(id[0]) << 16) | (Byte.toUnsignedInt(id[1]) << 8) | Byte.toUnsignedInt(id[2]);
+            int pageNumber = fieldType == SFTypeID.BPG_BeginPage ? currentPage + 2 : currentPage + 1;
+            String line = "{\"type\":\"field\",\"seq\":" + (fieldCount - 1)
+                + ",\"offset\":" + intro.getFileOffset() + ",\"length\":" + (intro.getSFLength() + 1)
+                + ",\"sf_id\":" + fieldId + ",\"page\":" + (pageOpen ? Integer.toString(pageNumber) : "null") + "}\n";
+            fieldDigest.update(line.getBytes(StandardCharsets.UTF_8));
+            stream.print(line);
+          }
           if (sf instanceof StructuredFieldErrornouslyBuilt err) {
             errors.add(new ErrorRecord(
                 "structured_field_error",
@@ -170,6 +194,7 @@ public final class AdapterMain {
               currentPage++;
               pages.add(new PageRecord(currentPage + 1, offset));
             }
+            case EPG_EndPage -> pageOpen = false;
             case BFM_BeginFormMap -> currentFormMap = name;
             case EFM_EndFormMap -> currentFormMap = null;
             case BMM_BeginMediumMap -> {
@@ -188,7 +213,7 @@ public final class AdapterMain {
               }
             }
             case IMM_InvokeMediumMap -> invokes.add(
-                new InvokeRecord(name, offset, currentPage >= 0 ? currentPage + 1 : null));
+                new InvokeRecord(name, offset, pageOpen ? currentPage + 1 : null));
             default -> {
               // Nothing to record.
             }
@@ -205,7 +230,20 @@ public final class AdapterMain {
     boolean complete = parser.getNrOfSFBuiltWithErrors() == 0
         && parsedBytes >= file.length()
         && fieldCount > 0;
-    return render(file, fieldCount, documentCount, pages, mediumMaps, invokes, errors, complete);
+    String result = render(file, fieldCount, documentCount, pages, mediumMaps, invokes, errors, complete);
+    return stream == null ? result : "{\"type\":\"summary\",\"field_count\":" + fieldCount
+        + ",\"fields_sha256\":" + quote(HexFormat.of().formatHex(fieldDigest.digest()))
+        + ",\"result\":" + result + "}\n";
+  }
+
+  private static String digest(File file) throws Exception {
+    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+    try (var input = Files.newInputStream(file.toPath())) {
+      byte[] buffer = new byte[65536];
+      int count;
+      while ((count = input.read(buffer)) >= 0) digest.update(buffer, 0, count);
+    }
+    return HexFormat.of().formatHex(digest.digest());
   }
 
   private static MapRecord lastMap(Map<String, MapRecord> openMaps, List<MapRecord> all) {

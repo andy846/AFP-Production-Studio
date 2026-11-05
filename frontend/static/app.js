@@ -195,6 +195,7 @@
       try {
         const body = {
           path: path,
+          input_format: $("input-format").value,
           path_grant: state.pathGrant,
           profile: $("profile-select").value || null,
           use_java_parser: $("java-parser").checked
@@ -359,14 +360,21 @@
     const kind = $("index-kind").value;
     const codec = $("index-codepage").value;
     const query = $("index-query").value.trim();
+    if (kind === "text_runs" && !codec) {
+      $("document-index-note").textContent = "Select EBCDIC 037 or 500 as the preview fallback before extracting positioned text.";
+      return;
+    }
     $("document-index-note").textContent = "Loading index...";
     try {
-      const result = await api("/api/documents/" + documentId + "/structure-index?kind=" + encodeURIComponent(kind) + "&limit=100&offset=" + documentIndexOffset + (codec ? "&preview_codec=" + encodeURIComponent(codec) : "") + (query && kind === "tags" ? "&q=" + encodeURIComponent(query) : ""));
+      const result = await api("/api/documents/" + documentId + (kind === "text_runs" ? "/text-runs" : "/structure-index"), {
+        method: "POST", body: kind === "text_runs" ? { page: state.page - 1, codepage: codec, q: query, limit: 100, offset: documentIndexOffset } :
+          { kind: kind, preview_codec: codec || null, q: kind === "tags" ? query : "", limit: 100, offset: documentIndexOffset }
+      });
       if (requestId !== documentIndexRequest || !state.document || state.document.document_id !== documentId) return;
       documentIndexTotal = result.total;
-      $("document-index-note").textContent = "Partial coverage: " + (codec ? "operator-selected " + codec + " preview is unverified. " : "raw TLE bytes; text not decoded. ") +
+      $("document-index-note").textContent = "Partial coverage: " + (kind === "text_runs" ? "page " + state.page + " positioned preview text; coordinates use page logical units. Offset identifies the PTX field. Fallback " + codec + " is operator-selected. " : codec ? "operator-selected " + codec + " preview is unverified. " : "raw TLE bytes; text not decoded. ") +
         (result.complete ? "Scanned fields without index warnings." : "Incomplete or limited index.") +
-        " " + result.warnings + " warning(s); " + result.total + " items.";
+        " " + (result.warnings || 0) + " warning(s); " + result.total + " items.";
       const list = el("table");
       const head = el("thead");
       const header = el("tr");
@@ -375,7 +383,22 @@
       const body = el("tbody");
       result.items.forEach((item) => {
         const row = el("tr");
-        row.appendChild(el("td", "mono", item.offset));
+        const offsetCell = el("td", "mono");
+        const jump = el("button", "finding-link", item.offset == null ? "Unknown" : item.offset);
+        jump.type = "button";
+        jump.disabled = item.offset == null;
+        jump.setAttribute("aria-label", "Locate structured field at offset " + item.offset);
+        jump.addEventListener("click", async () => {
+          const page = item.page || item.first_page;
+          if (page) await showPage(page);
+          document.querySelector('[data-tab="structure"]').click();
+          await loadStructurePage(page || state.page);
+          const field = Array.from($("structure-table").querySelectorAll("tr[data-offset]"))
+            .find((node) => node.dataset.offset === String(item.offset));
+          if (field) { field.classList.add("is-selected"); field.scrollIntoView({ block: "nearest" }); field.focus(); }
+          else setStatus("Structured field offset " + item.offset + " is outside the current page's displayed fields.");
+        });
+        offsetCell.appendChild(jump); row.appendChild(offsetCell);
         row.appendChild(el("td", "num", item.page || item.first_page || "—"));
         const previews = (item.triplets || []).filter((part) => part.preview !== undefined).map((part) => part.preview);
         const detail = (previews.length ? "Unverified preview: " + previews.join(" | ") + " — " : "") + JSON.stringify(item);
@@ -883,7 +906,7 @@
     const summary = state.document || {};
     const missing = (state.preflight && state.preflight.findings) || [];
     const resourceFindings = missing.filter(
-      (finding) => finding.code === "MISSING_RESOURCE"
+      (finding) => finding.code === "MISSING_RESOURCE" || finding.code === "EXTERNAL_RESOURCE_ATTESTED" || finding.code === "RESOURCE_SCOPE_UNVERIFIED"
     );
     $("resources-note").textContent =
       summary.medium_maps ? summary.medium_maps.length + " medium maps" : "";
@@ -926,18 +949,19 @@
     if (state.document) {
       const documentId = state.document.document_id;
       const section = el("div", "resource-references");
-      section.appendChild(el("h3", null, "Observed font references"));
+      section.appendChild(el("h3", null, "Resource dependency observations"));
       const note = el("p", "empty-note", "Loading...");
       section.appendChild(note);
       wrap.appendChild(section);
       api("/api/documents/" + documentId + "/resource-dependencies?limit=100")
         .then((data) => {
           if (!state.document || state.document.document_id !== documentId || !section.isConnected) return;
-          note.textContent = "Partial font mapping coverage; scope and external inventory are unverified. Showing " + data.items.length + " of " + data.total + "." + (data.complete ? "" : " Index incomplete.");
+          note.textContent = "Partial font and named-include coverage; scope remains unverified. Inventory entries are operator attestations, not observed printer results. Showing " + data.items.length + " of " + data.total + "." + (data.complete ? "" : " Index incomplete.");
           const refs = el("ul", "finding-list");
           data.items.forEach((item) => {
             const text = item.kind + " " + item.name + " — offset " + item.offset +
-              (item.declared_on_page ? ", declared on page " + item.declared_on_page : ", page not determined") + " — " + item.status;
+              (item.declared_on_page ? ", declared on page " + item.declared_on_page : ", page not determined") + " — " + item.status +
+              (item.evidence ? " — evidence: " + item.evidence.evidence_ref + ", " + item.evidence.verified_by + ", " + item.evidence.verified_at : "");
             const row = el("li", null, text);
             refs.appendChild(row);
           });
@@ -1151,8 +1175,7 @@
       const payload = await api(
         "/api/documents/" +
           state.document.document_id +
-          "/search?q=" +
-          encodeURIComponent(query)
+          "/search", { method: "POST", body: { q: query } }
       );
       box.textContent = "";
       const hits = [];

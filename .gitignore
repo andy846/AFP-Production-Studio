@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 .pytest_cache/
 .measure/
 .pytest-tmp/
@@ -13,6 +14,8 @@ third_party/
 # PyInstaller build output
 build/
 dist/
+/build-v03*/
+/dist-v03*/
 build-association/
 dist-association/
 /*.spec

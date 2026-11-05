@@ -23,6 +23,17 @@ class Record:
     framing: str
 
 
+def rdw_length(header: bytes, offset: int) -> int:
+    if len(header) != 4:
+        raise RecordError("truncated_record", offset, "Truncated RDW header.")
+    length = int.from_bytes(header[:2], "big")
+    if not 4 <= length <= 32760:
+        raise RecordError("invalid_rdw_length", offset, "RDW length is outside the supported range.")
+    if header[2:] != b"\x00\x00":
+        raise RecordError("unsupported_spanned_record", offset, "Spanned or non-standard RDW records are unsupported.")
+    return length
+
+
 def _read_exact(stream: BinaryIO, length: int, offset: int) -> bytes:
     chunks = []
     left = length
@@ -56,11 +67,7 @@ def iter_records(stream: BinaryIO, framing: str) -> Iterator[Record]:
             offset += length + 1
         else:
             header = first + _read_exact(stream, 3, offset)
-            length = int.from_bytes(header[:2], "big")
-            if not 4 <= length <= 32760:
-                raise RecordError("invalid_rdw_length", offset, "RDW length is outside the supported range.")
-            if header[2:] != b"\x00\x00":
-                raise RecordError("unsupported_spanned_record", offset, "Spanned or non-standard RDW records are unsupported.")
+            length = rdw_length(header, offset)
             payload = _read_exact(stream, length - 4, offset)
             yield Record(offset, offset + 4, payload, framing)
             offset += length

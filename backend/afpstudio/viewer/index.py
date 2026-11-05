@@ -23,6 +23,7 @@ import mmap
 from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
+from afpstudio.document_model.records import RecordError, rdw_length
 
 # --- MO:DCA structured field identifiers (3-byte id) ----------------------
 
@@ -156,6 +157,7 @@ class DocumentIndex:
     documents: int = 0
     warnings: list[dict] = field(default_factory=list)
     truncated: bool = False
+    input_format: str = "standard"
 
     # -- basic accessors -------------------------------------------------
 
@@ -232,15 +234,17 @@ def decode_ebcdic_name(raw: bytes) -> str:
     return "".join(ch for ch in text if ch.isprintable()).strip()
 
 
-def build_index(path: Path, progress=None) -> DocumentIndex:
+def build_index(path: Path, progress=None, input_format="standard") -> DocumentIndex:
     """Scan ``path`` once and return its :class:`DocumentIndex`.
 
     ``progress`` is an optional callable taking a percentage; the
     background job uses it so the UI can show a bar.
     """
     path = Path(path)
+    if input_format not in ("standard", "rdw"):
+        raise IndexingError("Unsupported input format.")
     size = path.stat().st_size
-    index = DocumentIndex(path=path, file_size=size)
+    index = DocumentIndex(path=path, file_size=size, input_format=input_format)
 
     with path.open("rb") as handle:
         with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mm:
@@ -252,6 +256,23 @@ def build_index(path: Path, progress=None) -> DocumentIndex:
             last_report = 0.0
 
             while pos < size:
+                record_end = None
+                if input_format == "rdw":
+                    try:
+                        record_end = pos + rdw_length(mm[pos:pos + 4], pos)
+                    except RecordError as exc:
+                        index.warnings.append({"code": exc.code, "offset": exc.offset, "message": str(exc)})
+                        index.truncated = True
+                        break
+                    if record_end > size:
+                        index.warnings.append({"code": "RDW_TRUNCATED", "offset": pos, "message": "RDW record exceeds file size."})
+                        index.truncated = True
+                        break
+                    pos += 4
+                    if pos >= record_end:
+                        index.warnings.append({"code": "RDW_EMPTY_RECORD", "offset": pos - 4, "message": "RDW record contains no structured field."})
+                        index.truncated = True
+                        break
                 if mm[pos] != CARRIAGE_CONTROL:
                     index.warnings.append(
                         {
@@ -293,6 +314,10 @@ def build_index(path: Path, progress=None) -> DocumentIndex:
                     break
 
                 total = length + 1
+                if record_end is not None and pos + total != record_end:
+                    index.warnings.append({"code": "RDW_FIELD_LENGTH_MISMATCH", "offset": pos, "message": "Each supported RDW record must contain one complete 5A structured field."})
+                    index.truncated = True
+                    break
                 if pos + total > size:
                     index.warnings.append(
                         {

@@ -461,7 +461,7 @@ def _orientation(data: bytes) -> str | None:
     return None
 
 
-def analyse_media(index: DocumentIndex, path: Path) -> MediaAnalysis:
+def analyse_media(index: DocumentIndex, path: Path, check_cancelled=None) -> MediaAnalysis:
     """Walk the media controls of an indexed document."""
     analysis = MediaAnalysis()
     form_map_stack: list[str | None] = []
@@ -472,6 +472,8 @@ def analyse_media(index: DocumentIndex, path: Path) -> MediaAnalysis:
 
     with path.open("rb") as handle:
         for i in range(index.field_count):
+            if check_cancelled and i % 256 == 0:
+                check_cancelled()
             sf_id = index.sf_ids[i]
             if sf_id == BPG:
                 page += 1

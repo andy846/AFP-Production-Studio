@@ -48,6 +48,7 @@
                   title="Choose an AFP file" hidden>Browse...</button>
         </div>
         <details class="open-options"><summary>Open options: printer profile, FormDef and parser</summary><div class="opener-row">
+          <label class="field"><span>Input format</span><select id="input-format"><option value="standard">Standard AFP (5A)</option><option value="rdw">RDW: one 5A field per record</option></select></label>
           <label class="field">
             <span>02 &nbsp; Printer profile <small>Optional</small></span>
             <select id="profile-select"><option value="">none</option></select>
@@ -140,7 +141,7 @@
       <div class="panel-head">
         <h2>Document index</h2>
         <label for="index-kind">Show</label>
-        <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="warnings">Warnings</option></select>
+        <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="text_runs">Positioned text (current page)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="warnings">Warnings</option></select>
         <label for="index-codepage">Unverified preview</label>
         <select id="index-codepage"><option value="">Raw only</option><option value="cp037">EBCDIC 037</option><option value="cp500">EBCDIC 500</option></select>
         <input id="index-query" type="search" aria-label="Search TLE preview" placeholder="Search preview text">

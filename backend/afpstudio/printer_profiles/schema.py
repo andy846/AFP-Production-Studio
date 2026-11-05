@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from datetime import date
 
 SCHEMA_VERSION = "1.0"
 
@@ -134,9 +135,10 @@ class PrinterProfile:
     media_maps: dict[str, MediaMapEntry] = field(default_factory=dict)
     rules: list[Rule] = field(default_factory=list)
     schema_version: str = SCHEMA_VERSION
+    resource_inventory: list[dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "schema_version": self.schema_version,
             "printer_profile": self.name,
             "media_maps": {
@@ -144,11 +146,34 @@ class PrinterProfile:
             },
             "rules": [rule.as_dict() for rule in self.rules],
         }
+        if self.resource_inventory:
+            data["resource_inventory"] = [dict(item) for item in self.resource_inventory]
+        return data
 
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ProfileError(message)
+
+
+def _validate_inventory(raw):
+    _require(isinstance(raw, list) and len(raw) <= 10000, "Resource inventory must be an array of at most 10000 entries.")
+    seen = set()
+    result = []
+    keys = {"kind", "name", "evidence_ref", "verified_by", "verified_at"}
+    for item in raw:
+        _require(isinstance(item, dict) and set(item) == keys, "Inventory requires kind, name, evidence_ref, verified_by and verified_at.")
+        _require(all(isinstance(value, str) and value.strip() and len(value) <= 256 for value in item.values()), "Inventory values must be non-empty text of at most 256 characters.")
+        _require(item["kind"] in ("coded font", "code page", "character set", "overlay", "page segment", "object"), "Unsupported inventory kind.")
+        try:
+            date.fromisoformat(item["verified_at"])
+        except ValueError as exc:
+            raise ProfileError("Inventory verified_at must be an ISO date.") from exc
+        key = (item["kind"], item["name"])
+        _require(key not in seen, "Duplicate or conflicting resource inventory entry.")
+        seen.add(key)
+        result.append(dict(item))
+    return result
 
 
 def _validate_media_maps(raw_maps: Any) -> dict[str, MediaMapEntry]:
@@ -291,10 +316,12 @@ def validate_profile(data: Any) -> PrinterProfile:
 
     media_maps = _validate_media_maps(data.get("media_maps", {}))
     rules = _validate_rules(data.get("rules", []))
+    inventory = _validate_inventory(data.get("resource_inventory", []))
 
     return PrinterProfile(
         name=name,
         media_maps=media_maps,
         rules=rules,
         schema_version=version,
+        resource_inventory=inventory,
     )

@@ -18,19 +18,22 @@ working with its own parser.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
 
 from .contract import AdapterError, AdapterResult, validate_result
+from .jsonl import read_jsonl
 
 #: Error code used when the Java side is simply not there.
 UNAVAILABLE = "parser_unavailable"
 
 
-def _read_capped(stream, limit: int) -> tuple[bytes, bool]:
+def _read_capped(stream, limit: int, destination=None) -> tuple[bytes, bool]:
     """Read a stream, stopping once ``limit`` bytes have arrived."""
     chunks: list[bytes] = []
     total = 0
@@ -42,9 +45,16 @@ def _read_capped(stream, limit: int) -> tuple[bytes, bool]:
         total += len(chunk)
         if total > limit:
             overflow = True
-            chunks.append(chunk[: max(0, limit - (total - len(chunk)))])
+            chunk = chunk[: max(0, limit - (total - len(chunk)))]
+            if destination is not None:
+                destination.write(chunk)
+            else:
+                chunks.append(chunk)
             break
-        chunks.append(chunk)
+        if destination is not None:
+            destination.write(chunk)
+        else:
+            chunks.append(chunk)
     return b"".join(chunks), overflow
 
 
@@ -102,7 +112,7 @@ class AlpheusAdapter:
             "--input",
             str(path),
             "--format",
-            "json",
+            "jsonl",
         ]
 
     def parse(
@@ -117,6 +127,11 @@ class AlpheusAdapter:
             raise AdapterError(description["reason"], UNAVAILABLE)
 
         path = Path(path)
+        try:
+            with path.open("rb") as source:
+                expected_digest = hashlib.file_digest(source, "sha256").hexdigest()
+        except OSError:
+            expected_digest = None  # Startup error is still reported by the subprocess.
         deadline = timeout if timeout is not None else self.timeout_seconds
         command = self.command(path)
 
@@ -150,11 +165,31 @@ class AlpheusAdapter:
         overflow = threading.Event()
 
         def read_stdout() -> None:
-            captured["stdout"], captured["stdout_overflow"] = _read_capped(
-                process.stdout, self.max_output_bytes
-            )
-            if captured["stdout_overflow"]:
-                overflow.set()
+            try:
+                with tempfile.TemporaryFile() as spool:
+                    _, captured["stdout_overflow"] = _read_capped(process.stdout, self.max_output_bytes, spool)
+                    if captured["stdout_overflow"]:
+                        overflow.set()
+                        return
+                    spool.seek(0)
+                    first = spool.readline(16 * 1024 * 1024 + 1)
+                    if len(first) > 16 * 1024 * 1024:
+                        raise AdapterError("Adapter metadata line exceeds the limit.")
+                    try:
+                        header = json.loads(first)
+                    except (ValueError, UnicodeError) as exc:
+                        raise AdapterError("Invalid adapter JSON.") from exc
+                    spool.seek(0)
+                    if isinstance(header, dict) and header.get("type") == "header":
+                        captured["result"] = read_jsonl(spool, expected_digest=expected_digest)
+                    else:
+                        # Contract 1 is retained for existing development adapters.
+                        legacy = spool.read(16 * 1024 * 1024 + 1)
+                        if len(legacy) > 16 * 1024 * 1024:
+                            raise AdapterError("Legacy adapter result exceeds the limit.")
+                        captured["result"] = validate_result(json.loads(legacy))
+            except (AdapterError, ValueError, UnicodeError, OSError) as exc:
+                captured["error"] = exc if isinstance(exc, AdapterError) else AdapterError("Invalid adapter result.")
 
         def read_stderr() -> None:
             captured["stderr"], captured["stderr_overflow"] = _read_capped(
@@ -217,16 +252,16 @@ class AlpheusAdapter:
                 "adapter_failed",
             )
 
-        payload = captured.get("stdout", b"")
-        try:
-            data = json.loads(payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise AdapterError(
-                f"The Alpheus adapter did not return valid JSON: {exc}",
-                "invalid_result",
-            ) from exc
-
-        return validate_result(data)
+        if "error" in captured:
+            raise captured["error"]
+        if "result" not in captured:
+            raise AdapterError("Adapter output reader did not complete.")
+        result = captured["result"]
+        if result.input_sha256:
+            with path.open("rb") as source:
+                if hashlib.file_digest(source, "sha256").hexdigest() != result.input_sha256:
+                    raise AdapterError("Source changed during independent parsing.", "source_changed")
+        return result
 
     @staticmethod
     def _stop(process: subprocess.Popen) -> None:

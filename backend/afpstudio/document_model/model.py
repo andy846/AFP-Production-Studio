@@ -31,7 +31,7 @@ from afpstudio.parser_adapters.contract import compare_with_local
 from afpstudio.viewer.cache import PageCache
 from afpstudio.viewer.index import DocumentIndex, build_index
 from afpstudio.viewer.renderer import PageRenderer
-from afpstudio.viewer.resources import missing_resources
+from afpstudio.viewer.resources import preflight_resources
 
 
 class SourceChangedError(RuntimeError):
@@ -97,6 +97,7 @@ class DocumentSession:
     parse_complete: bool = True
     comparison_status: str = "not_requested"
     source_signatures: dict[Path, tuple] = field(default_factory=dict)
+    resource_inventory: list[dict] = field(default_factory=list)
 
     def check_sources(self) -> None:
         for path, expected in self.source_signatures.items():
@@ -254,6 +255,7 @@ class DocumentSession:
             "parser": self.parser,
             "missing_resources": len(self.missing_resources),
             "parser_disagreements": len(self.parser_disagreements),
+            "input_format": self.index.input_format,
             "comparison_status": self.comparison_status,
         }
 
@@ -278,6 +280,7 @@ class DocumentStore:
         incomplete: bool = False,
         parser: str = "studio",
         check_cancelled=None,
+        input_format="standard",
     ) -> DocumentSession:
         """Index, analyse and preflight a document."""
         path = Path(path)
@@ -287,9 +290,9 @@ class DocumentStore:
         for form_def in form_defs or ():
             form_path = Path(form_def)
             sources[form_path] = source_signature(form_path)
-        index = build_index(path, progress=progress)
+        index = build_index(path, progress=progress, input_format=input_format)
         check()
-        analysis = analyse_media(index, path)
+        analysis = analyse_media(index, path, check_cancelled=check)
         check()
 
         external: dict[str, MediumMapDefinition] = {}
@@ -303,7 +306,7 @@ class DocumentStore:
         resources = (
             resource_report
             if resource_report is not None
-            else missing_resources(index, path)
+            else preflight_resources(index, path, inventory=profile.resource_inventory if profile else ())
         )
 
         disagreements: list[dict[str, Any]] = []
@@ -333,6 +336,7 @@ class DocumentStore:
             incomplete=incomplete,
             implicit_pages=max(0, renderer.page_count - index.page_count),
             parser=parser,
+            check_cancelled=check,
         )
         check()
 
@@ -348,7 +352,7 @@ class DocumentStore:
             analysis=analysis,
             preflight=preflight,
             external_definitions=external,
-            missing_resources=list(resources),
+            missing_resources=[item for item in resources if item.get("code", "MISSING_RESOURCE") == "MISSING_RESOURCE"],
             parser_disagreements=disagreements,
             parser_failures=parser_failures,
             parser=parser,
@@ -356,6 +360,7 @@ class DocumentStore:
             comparison_status=("failed" if adapter_error or (adapter_result is not None and not adapter_result.complete)
                                else "disagreed" if disagreements else "partial" if adapter_result is not None else "not_requested"),
             source_signatures=sources,
+            resource_inventory=[dict(item) for item in profile.resource_inventory] if profile else [],
         )
         with self._lock:
             self._documents[session.document_id] = session

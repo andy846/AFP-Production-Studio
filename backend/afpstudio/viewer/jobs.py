@@ -12,6 +12,8 @@ five times cannot start five full-document parses at the same time.
 from __future__ import annotations
 
 import threading
+import time
+import queue
 import traceback
 import uuid
 from dataclasses import dataclass, field
@@ -30,6 +32,14 @@ TERMINAL_STATES = (COMPLETED, FAILED, CANCELLED)
 
 class JobCancelled(Exception):
     """Raised inside a job when the operator cancels it."""
+
+
+class JobQueueFull(RuntimeError):
+    """The bounded queue cannot accept another job."""
+
+
+class JobTimeout(RuntimeError):
+    """A cooperative task exceeded its execution deadline."""
 
 
 @dataclass
@@ -67,10 +77,11 @@ class Job:
 class JobContext:
     """Handed to a job so it can report progress and check for cancellation."""
 
-    def __init__(self, job: Job, cancel: threading.Event) -> None:
+    def __init__(self, job: Job, cancel: threading.Event, timeout_seconds=900) -> None:
         self.job = job
         self._cancel = cancel
         self._cancel_cleanup = None
+        self._deadline = time.monotonic() + timeout_seconds
 
     def on_cancel(self, callback: Callable[[], None]) -> None:
         self._cancel_cleanup = callback
@@ -83,6 +94,8 @@ class JobContext:
         """Raise :class:`JobCancelled` when the operator asked to stop."""
         if self._cancel.is_set():
             raise JobCancelled()
+        if time.monotonic() >= self._deadline:
+            raise JobTimeout("Task exceeded its execution deadline.")
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Report progress; the fraction is clamped to 0..1."""
@@ -95,12 +108,15 @@ class JobContext:
 class JobManager:
     """Runs jobs on a bounded pool of worker threads."""
 
-    def __init__(self, max_concurrent: int = 2) -> None:
+    def __init__(self, max_concurrent: int = 2, timeout_seconds=900, max_pending=64) -> None:
         self.max_concurrent = max(1, int(max_concurrent))
         self._jobs: dict[str, Job] = {}
         self._cancel: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
-        self._slots = threading.Semaphore(self.max_concurrent)
+        self.timeout_seconds = timeout_seconds
+        self.max_pending = max_pending
+        self._queue = queue.Queue()
+        self._workers = set()
 
     def submit(
         self,
@@ -112,21 +128,36 @@ class JobManager:
         job_id = uuid.uuid4().hex
         job = Job(id=job_id, kind=kind, label=label)
         cancel = threading.Event()
+        self.prune(keep=128)
         with self._lock:
+            if sum(job.state not in TERMINAL_STATES for job in self._jobs.values()) >= self.max_pending + self.max_concurrent:
+                raise JobQueueFull("The job queue is full. Wait for a task to finish.")
             self._jobs[job_id] = job
             self._cancel[job_id] = cancel
-
-        thread = threading.Thread(
-            target=self._run,
-            args=(job_id, work),
-            name=f"afp-job-{job_id[:8]}",
-            daemon=True,
-        )
-        thread.start()
+            self._queue.put((job_id, work))
+            if len(self._workers) < self.max_concurrent:
+                thread = threading.Thread(target=self._worker, name=f"afp-job-worker-{job_id[:8]}", daemon=True)
+                self._workers.add(thread)
+                thread.start()
         return job
 
+    def _worker(self):
+        while True:
+            try:
+                job_id, work = self._queue.get(timeout=1)
+            except queue.Empty:
+                with self._lock:
+                    if self._queue.empty():
+                        self._workers.discard(threading.current_thread())
+                        return
+                continue
+            try:
+                self._run(job_id, work)
+            finally:
+                self._queue.task_done()
+
     def _run(self, job_id: str, work: Callable[[JobContext], Any]) -> None:
-        self._slots.acquire()
+        context = None
         try:
             job = self.get(job_id)
             if job is None:
@@ -136,8 +167,9 @@ class JobManager:
                 self._finish(job_id, CANCELLED, "Cancelled before it started.")
                 return
             job.state = RUNNING
-            context = JobContext(job, cancel or threading.Event())
+            context = JobContext(job, cancel or threading.Event(), self.timeout_seconds)
             result = work(context)
+            context.check_cancelled()
             with self._lock:
                 cancelled = context.cancelled
                 if not cancelled:
@@ -151,10 +183,12 @@ class JobManager:
                     context._cancel_cleanup()
                 self._finish(job_id, CANCELLED, "Cancelled by the operator.")
         except JobCancelled:
-            if context._cancel_cleanup:
+            if context and context._cancel_cleanup:
                 context._cancel_cleanup()
             self._finish(job_id, CANCELLED, "Cancelled by the operator.")
         except BaseException as exc:  # noqa: BLE001 - reported, not swallowed
+            if context and context._cancel_cleanup:
+                context._cancel_cleanup()
             job = self.get(job_id)
             detail = "".join(
                 traceback.format_exception_only(type(exc), exc)
@@ -164,8 +198,6 @@ class JobManager:
             self._finish(
                 job_id, FAILED, job.error if job else "Job failed."
             )
-        finally:
-            self._slots.release()
 
     def _finish(self, job_id: str, state: str, message: str) -> None:
         job = self.get(job_id)

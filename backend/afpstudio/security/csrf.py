@@ -70,7 +70,7 @@ def require_csrf(view: Callable[..., Any]) -> Callable[..., Any]:
 
     @wraps(view)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        if not validate():
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not validate():
             abort(403, "CSRF validation failed.")
         return view(*args, **kwargs)
 

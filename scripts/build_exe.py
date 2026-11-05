@@ -24,13 +24,13 @@ ENTRY = REPO_ROOT / "backend" / "afpstudio" / "__main__.py"
 
 #: The packages the frozen application needs at run time.
 RUNTIME_PACKAGES = [
-    "Flask==2.3.3",
-    "Werkzeug==2.3.7",
-    "Jinja2==3.1.4",
-    "MarkupSafe==2.1.5",
+    "Flask==3.1.3",
+    "Werkzeug==3.1.9",
+    "Jinja2==3.1.6",
+    "MarkupSafe==3.0.4",
     "itsdangerous==2.2.0",
     "click==8.1.7",
-    "blinker==1.8.2",
+    "blinker==1.9.0",
     "segno==1.6.6",
     "openpyxl==3.1.5",
     "et-xmlfile==2.0.0",

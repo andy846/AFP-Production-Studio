@@ -103,7 +103,7 @@ def test_font_dependency_preserves_offset_and_does_not_claim_scope(tmp_path):
     path = tmp_path / "font.afp"
     path.write_bytes(before + mcf + synthetic.epg() + synthetic.edt())
     result = resource_dependencies(build_index(path), path)
-    assert result["coverage"] == "partial_font_mapping"
+    assert result["coverage"] == "partial_font_mapping_and_named_includes"
     assert result["complete"] is False
     resource = next(item for item in result["references"] if item["name"] == "NOPE01")
     assert resource["offset"] == len(before)

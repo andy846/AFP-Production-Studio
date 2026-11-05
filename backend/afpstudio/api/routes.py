@@ -27,6 +27,8 @@ from afpstudio.security.csrf import current_token, require_csrf
 from afpstudio.security.paths import PathError, resolve_under_roots, safe_output_path
 from afpstudio.security.paths import atomic_write_bytes
 from afpstudio.viewer.resources import resource_dependencies
+from afpstudio.viewer.jobs import JobQueueFull
+from afpstudio.viewer.renderer import RenderError
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -187,6 +189,11 @@ def open_document():
 
     profile = _selected_profile(payload.get("profile"))
     use_java = bool(payload.get("use_java_parser"))
+    input_format = payload.get("input_format", "standard")
+    if input_format not in ("standard", "rdw"):
+        return _error("Unsupported input format.", 400, "invalid_request")
+    if input_format == "rdw" and use_java:
+        return _error("The current Java adapter cannot independently compare RDW input.", 400, "unsupported_comparison")
     # The job runs on a worker thread, outside the request's application
     # context, so everything it needs is captured here.
     store = _store()
@@ -231,13 +238,15 @@ def open_document():
             incomplete=incomplete,
             parser=parser_name,
             check_cancelled=context.check_cancelled,
+            input_format=input_format,
         )
         context.on_cancel(lambda: store.close(session_doc.document_id))
         return session_doc.summary()
 
-    job = _jobs().submit(
-        "open-document", f"Open {path.name}", work
-    )
+    try:
+        job = _jobs().submit("open-document", "Open document", work)
+    except JobQueueFull as exc:
+        return _error(str(exc), 429, "job_queue_full")
     return jsonify({"job": job.as_dict()})
 
 
@@ -306,12 +315,42 @@ def page_svg(document_id: str, page: int):
         return _error("No such page.", 404, "page_not_found")
     try:
         svg = document.page_svg(page, cache=_store().cache)
+    except RenderError as exc:
+        return _error(str(exc), 422, "render_failed")
     except (SourceChangedError, OSError) as exc:
         _store().close(document_id)
         return _error(str(exc), 409, "source_changed")
     response = current_app.response_class(svg, mimetype="image/svg+xml")
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@bp.post("/documents/<document_id>/text-runs")
+@require_csrf
+def positioned_text(document_id):
+    document, error = _session_or_error(document_id)
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    page, limit, offset = payload.get("page", 0), payload.get("limit", 100), payload.get("offset", 0)
+    query = payload.get("q", "")
+    if (type(page) is not int or not 0 <= page < document.index.page_count or
+        type(limit) is not int or not 1 <= limit <= 500 or type(offset) is not int or offset < 0 or
+        not isinstance(query, str) or len(query) > 256):
+        return _error("Invalid page, limit, offset or query.")
+    try:
+        result = document.renderer.text_runs(page, codepage=payload.get("codepage"))
+        document.check_sources()
+    except ValueError as exc:
+        return _error(str(exc))
+    except RenderError as exc:
+        return _error(str(exc), 422, "render_failed")
+    except (SourceChangedError, OSError) as exc:
+        _store().close(document_id)
+        return _error(str(exc), 409, "source_changed")
+    rows = [item for item in result["items"] if query.casefold() in item["text"].casefold()]
+    result.update(items=rows[offset:offset + limit], total=len(rows))
+    return jsonify(result)
 
 
 @bp.get("/documents/<document_id>/fields")
@@ -337,23 +376,28 @@ def document_fields(document_id: str):
     )
 
 
-@bp.get("/documents/<document_id>/structure-index")
+@bp.route("/documents/<document_id>/structure-index", methods=["GET", "POST"])
+@require_csrf
 def structure_index(document_id: str):
     document, error = _session_or_error(document_id)
     if error:
         return error
-    kind = request.args.get("kind", "tags")
+    params = request.get_json(silent=True) or {} if request.method == "POST" else request.args
+    kind = params.get("kind", "tags")
     if kind not in ("documents", "page_groups", "tags", "warnings"):
         return _error("Unknown index kind.", 400, "invalid_request")
-    preview_codec = request.args.get("preview_codec") or None
+    preview_codec = params.get("preview_codec") or None
     if preview_codec not in (None, "cp037", "cp500"):
         return _error("Unsupported preview codec.", 400, "invalid_request")
-    query = request.args.get("q", "").strip()
+    raw_query = params.get("q", "")
+    if not isinstance(raw_query, str):
+        return _error("Query must be text.")
+    query = raw_query.strip()
     if len(query) > 256 or (query and (kind != "tags" or preview_codec is None)):
         return _error("Text search requires a preview code page and a query of at most 256 characters.", 400, "invalid_request")
     try:
-        limit = int(request.args.get("limit", 100))
-        offset = int(request.args.get("offset", 0))
+        limit = int(params.get("limit", 100))
+        offset = int(params.get("offset", 0))
         if not 1 <= limit <= 500 or offset < 0:
             raise ValueError
     except ValueError:
@@ -373,12 +417,16 @@ def structure_index(document_id: str):
                     "warnings": len(result["warnings"])})
 
 
-@bp.get("/documents/<document_id>/search")
+@bp.route("/documents/<document_id>/search", methods=["GET", "POST"])
+@require_csrf
 def search(document_id: str):
     document, error = _session_or_error(document_id)
     if error:
         return error
-    query = request.args.get("q", "")
+    params = (request.get_json(silent=True) or {}) if request.method == "POST" else request.args
+    query = params.get("q", "")
+    if not isinstance(query, str) or len(query) > 256:
+        return _error("Query must be text of at most 256 characters.")
     if not query.strip():
         return jsonify({"structure": [], "text": []})
     structure = [row.as_dict() for row in document.search_structure(query)]
@@ -402,7 +450,7 @@ def document_resource_dependencies(document_id: str):
     except ValueError:
         return _error("Invalid limit or offset.", 400, "invalid_request")
     try:
-        result = resource_dependencies(document.index, document.path)
+        result = resource_dependencies(document.index, document.path, inventory=document.resource_inventory)
         document.check_sources()
     except (OSError, SourceChangedError) as exc:
         _store().close(document_id)
