@@ -15,6 +15,7 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request, session
 
 from afpstudio.document_model.model import DocumentStore, SourceChangedError
+from afpstudio.document_model.structure import build_structure_index
 from afpstudio.parser_adapters.alpheus import AlpheusAdapter
 from afpstudio.parser_adapters.contract import AdapterError
 from afpstudio.preflight.engine import STATUSES
@@ -333,6 +334,33 @@ def document_fields(document_id: str):
             "total": document.index.field_count,
         }
     )
+
+
+@bp.get("/documents/<document_id>/structure-index")
+def structure_index(document_id: str):
+    document, error = _session_or_error(document_id)
+    if error:
+        return error
+    kind = request.args.get("kind", "tags")
+    if kind not in ("documents", "page_groups", "tags", "warnings"):
+        return _error("Unknown index kind.", 400, "invalid_request")
+    try:
+        limit = int(request.args.get("limit", 100))
+        offset = int(request.args.get("offset", 0))
+        if not 1 <= limit <= 500 or offset < 0:
+            raise ValueError
+    except ValueError:
+        return _error("Invalid limit or offset.", 400, "invalid_request")
+    try:
+        result = build_structure_index(document.path, document.index)
+        document.check_sources()
+    except (SourceChangedError, OSError) as exc:
+        _store().close(document_id)
+        return _error(str(exc), 409, "source_changed")
+    rows = result[kind]
+    return jsonify({"kind": kind, "items": rows[offset:offset + limit], "total": len(rows),
+                    "complete": result["complete"], "coverage": result["coverage"],
+                    "warnings": len(result["warnings"])})
 
 
 @bp.get("/documents/<document_id>/search")

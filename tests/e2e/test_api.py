@@ -38,6 +38,22 @@ def test_the_health_endpoint_reveals_nothing(app_client):
     assert "filename" not in payload
 
 
+def test_document_index_exposes_bounded_raw_results(app_client, tmp_path):
+    source = tmp_path / "job.afp"
+    tag = synthetic.structured_field(0xD3A090, synthetic.triplet(0x36, b"\x00\x00ABC"))
+    source.write_bytes(synthetic.bdt() + tag + synthetic.edt())
+    summary = open_document(app_client, source)
+    endpoint = f"/api/documents/{summary['document_id']}/structure-index"
+    response = app_client.get(endpoint + "?kind=tags&limit=1&offset=0")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["coverage"] == "partial_raw_tle"
+    assert data["total"] == 1
+    assert data["items"][0]["offset"] == len(synthetic.bdt())
+    assert data["items"][0]["status"] == "raw_encoding_unknown"
+    assert app_client.get(endpoint + "?limit=100000").status_code == 400
+
+
 def test_the_index_page_loads(app_client):
     response = app_client.get("/")
     assert response.status_code == 200

@@ -33,3 +33,11 @@ def test_malformed_triplet_is_reported_with_original_offset(tmp_path):
     assert not result["complete"]
     assert result["tags"][0]["status"] == "malformed"
     assert result["warnings"][0]["offset"] == len(synthetic.bdt()) + 9
+
+
+def test_limits_are_reported_as_incomplete(tmp_path):
+    path = tmp_path / "limited.afp"
+    path.write_bytes(synthetic.bdt() + synthetic.structured_field(0xD3A090, b"\x04\x36\x00\x00") + synthetic.edt())
+    result = build_structure_index(path, build_index(path), max_raw_bytes=1)
+    assert not result["complete"]
+    assert any(w["code"] == "INDEX_RAW_LIMIT_REACHED" for w in result["warnings"])

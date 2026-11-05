@@ -83,6 +83,7 @@
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer">Viewer</button>
     <button class="tab" data-tab="structure">Structure</button>
+    <button class="tab" data-tab="document-index">Document Index</button>
     <button class="tab" data-tab="preflight">Media Preflight</button>
     <button class="tab" data-tab="resources">Resources</button>
     <button class="tab" data-tab="report">Production Report</button>
@@ -135,6 +136,17 @@
       <div class="table-wrap" id="structure-table"></div>
     </section>
 
+    <section class="panel main-panel" data-panel="document-index" hidden>
+      <div class="panel-head">
+        <h2>Document index</h2>
+        <label for="index-kind">Show</label>
+        <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="warnings">Warnings</option></select>
+        <button type="button" class="ghost small" id="index-prev">Previous</button>
+        <button type="button" class="ghost small" id="index-next">Next</button>
+      </div>
+      <p class="panel-note" id="document-index-note">Partial index; TLE text is not decoded.</p>
+      <div class="table-wrap" id="document-index-table"></div>
+    </section>
     <section class="panel main-panel" data-panel="preflight" hidden>
       <div class="panel-head">
         <h2>Media preflight</h2>

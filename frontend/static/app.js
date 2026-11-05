@@ -238,6 +238,7 @@
     $("tree").textContent = "";
     $("details").textContent = "";
     $("structure-table").textContent = "";
+    $("document-index-table").textContent = "";
     $("preflight-table").textContent = "";
     $("media-timeline").textContent = "";
     $("report-body").textContent = "";
@@ -286,6 +287,7 @@
   async function afterOpen(summary) {
     const previous = state.document;
     state.document = summary;
+    documentIndexOffset = 0;
     if (previous && previous.document_id !== summary.document_id) {
       try { await api("/api/documents/" + previous.document_id, { method: "DELETE" }); } catch (err) { setStatus(err.message); }
     }
@@ -337,10 +339,48 @@
 
   function renderTab(tab) {
     if (tab === "structure") loadStructurePage(state.page || 1);
+    if (tab === "document-index") loadDocumentIndex();
     if (tab === "preflight") renderPreflight();
     if (tab === "resources") renderResources();
     if (tab === "report") renderReport();
     if (tab === "settings") renderSettings();
+  }
+
+  let documentIndexOffset = 0;
+  let documentIndexRequest = 0;
+  let documentIndexTotal = 0;
+
+  async function loadDocumentIndex() {
+    const table = $("document-index-table");
+    table.textContent = "";
+    if (!state.document) { table.appendChild(el("p", "empty-note", "Open an AFP document first.")); return; }
+    const requestId = ++documentIndexRequest;
+    const documentId = state.document.document_id;
+    const kind = $("index-kind").value;
+    $("document-index-note").textContent = "Loading index...";
+    try {
+      const result = await api("/api/documents/" + documentId + "/structure-index?kind=" + encodeURIComponent(kind) + "&limit=100&offset=" + documentIndexOffset);
+      if (requestId !== documentIndexRequest || !state.document || state.document.document_id !== documentId) return;
+      documentIndexTotal = result.total;
+      $("document-index-note").textContent = "Partial coverage: raw TLE bytes; text not decoded. " +
+        (result.complete ? "Scanned fields without index warnings." : "Incomplete or limited index.") +
+        " " + result.warnings + " warning(s); " + result.total + " items.";
+      const list = el("table");
+      const head = el("thead");
+      const header = el("tr");
+      ["Offset", "Page", "Details"].forEach((name) => header.appendChild(el("th", null, name)));
+      head.appendChild(header); list.appendChild(head);
+      const body = el("tbody");
+      result.items.forEach((item) => {
+        const row = el("tr");
+        row.appendChild(el("td", "mono", item.offset));
+        row.appendChild(el("td", "num", item.page || item.first_page || "—"));
+        const detail = JSON.stringify(item);
+        row.appendChild(el("td", "mono", detail.length > 512 ? detail.slice(0, 512) + "… (truncated)" : detail));
+        body.appendChild(row);
+      });
+      list.appendChild(body); table.appendChild(list);
+    } catch (err) { $("document-index-note").textContent = err.message; }
   }
 
   /* ------------------------------------------------------------------ */
@@ -1203,6 +1243,9 @@
     initViewer();
     initSearch();
     initExport();
+    $("index-kind").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
+    $("index-prev").addEventListener("click", () => { documentIndexOffset = Math.max(0, documentIndexOffset - 100); loadDocumentIndex(); });
+    $("index-next").addEventListener("click", () => { if (documentIndexOffset + 100 < documentIndexTotal) { documentIndexOffset += 100; loadDocumentIndex(); } });
     loadProfiles();
     setInterval(async () => {
       if (!state.document) return;
