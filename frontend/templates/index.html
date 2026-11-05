@@ -23,8 +23,9 @@
       <span class="status-pill" id="doc-status" data-status="unresolved">unresolved</span>
     </div>
     <div class="masthead-tools">
-      <span class="privacy-note" title="Nothing leaves this machine">
-        local only &middot; loopback
+      <button type="button" class="primary" id="open-new">Open AFP</button>
+      <span class="privacy-note" title="Local processing; selected network shares may be read">
+        local processing &middot; selected shares
       </span>
       <span class="version">v{{ version }}</span>
     </div>
@@ -35,9 +36,8 @@
       <div class="eyebrow">LOCAL PRODUCTION WORKSPACE <span>01 / OPEN JOB</span></div>
       <h1>Open an AFP file</h1>
       <p class="opener-lead">
-        Studio reads the file from disk, indexes it once and renders pages
-        on demand. Nothing is uploaded, and the source file is never
-        modified.
+        Select a local or authorised network file. Processing stays on this
+        computer and the source is never modified.
       </p>
       <form id="open-form" class="opener-form">
         <label for="path-input">01 &nbsp; AFP document <span class="field-hint">Required</span></label>
@@ -47,7 +47,7 @@
           <button type="button" class="ghost" id="browse-button"
                   title="Choose an AFP file" hidden>Browse...</button>
         </div>
-        <div class="opener-row">
+        <details class="open-options"><summary>Open options: printer profile, FormDef and parser</summary><div class="opener-row">
           <label class="field">
             <span>02 &nbsp; Printer profile <small>Optional</small></span>
             <select id="profile-select"><option value="">none</option></select>
@@ -65,7 +65,7 @@
             <input id="java-parser" type="checkbox">
             <span>Cross-check with the Java parser</span>
           </label>
-        </div>
+        </div></details>
         <div class="opener-actions">
           <button type="submit" class="primary" id="open-button">Open file</button>
           <span class="opener-error" id="open-error" role="alert"></span>
@@ -79,7 +79,7 @@
     </div>
   </section>
 
-  <nav class="tabs" id="tabs" hidden>
+  <nav class="tabs" id="tabs">
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer">Viewer</button>
     <button class="tab" data-tab="structure">Structure</button>
@@ -90,7 +90,7 @@
     <button type="button" class="panel-toggle details-toggle" id="toggle-details" aria-controls="details-panel" aria-expanded="true">Page details</button>
   </nav>
 
-  <main class="workspace" id="workspace" hidden>
+  <main class="workspace" id="workspace">
     <aside class="panel tree-panel" id="tree-panel">
       <div class="panel-head">
         <h2>AFP tree</h2>

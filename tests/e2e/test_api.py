@@ -127,6 +127,40 @@ def test_an_export_may_not_overwrite_the_source(app_client, tmp_path):
     assert path.read_bytes() == original
 
 
+def test_changed_source_invalidates_session_and_cached_page(app_client, tmp_path):
+    path = tmp_path / "changing.afp"
+    path.write_bytes(synthetic.simplex_document(2))
+    summary = open_document(app_client, path)
+    doc_id = summary["document_id"]
+    assert app_client.get(f"/api/documents/{doc_id}/page/0.svg").status_code == 200
+    with path.open("ab") as handle:
+        handle.write(b"changed")
+    response = app_client.get(f"/api/documents/{doc_id}/preflight")
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "source_changed"
+    assert app_client.get(f"/api/documents/{doc_id}/page/0.svg").status_code == 404
+
+
+def test_changed_source_during_analysis_does_not_publish(tmp_path, monkeypatch):
+    import afpstudio.document_model.model as model
+
+    path = tmp_path / "changing.afp"
+    path.write_bytes(synthetic.simplex_document(2))
+    original = model.analyse_media
+
+    def change_after_analysis(index, source):
+        result = original(index, source)
+        with source.open("ab") as handle:
+            handle.write(b"changed")
+        return result
+
+    monkeypatch.setattr(model, "analyse_media", change_after_analysis)
+    store = model.DocumentStore()
+    with pytest.raises(model.SourceChangedError):
+        store.open(path)
+    assert store.list() == []
+
+
 @pytest.mark.parametrize("fmt", ["csv", "xlsx"])
 def test_export_suffix_cannot_overwrite_source(app_client, tmp_path, fmt):
     path = tmp_path / ("job." + fmt)

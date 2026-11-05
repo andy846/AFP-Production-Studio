@@ -29,7 +29,7 @@ Download `AFP-Production-Studio.exe` from the
 [releases page](https://github.com/andy846/AFP-Production-Studio/releases)
 and double-click it.
 
-The window opens on the opening screen. Use **Browse** next to the path
+The window opens on the viewer workspace. Use **Browse** next to the path
 box to pick the AFP file, and **Browse** next to the form definition
 box to pick an external FormDef. The export button opens a normal save
 dialog. The path boxes still work, so a file can also be typed in.
@@ -116,10 +116,18 @@ that, double-clicking an AFP file starts the desktop viewer and opens
 the selected file. Move the executable to its permanent location before
 setting the association.
 
-For a local file outside the configured allowed roots, this launch grants
-access only to that selected file, not its containing folder. Network
-paths remain blocked. Importing other files and FormDefs still uses the
-normal allowed-root settings.
+For a local or network file outside configured roots, this launch grants
+access only to the selected file, not its containing folder. Native Browse
+grants a single-use permission to its selected document or FormDef. Manually
+entered paths must be inside `AFP_STUDIO_ALLOWED_ROOTS`. Windows drive-letter
+shares and UNC paths such as `\\server\share\job.afp` are supported; Windows
+controls the credentials. Studio does not store share passwords.
+
+If a source file becomes unavailable or its size, timestamps or identity
+change, Studio invalidates the document and asks you to reopen it. Metadata
+checks cannot detect every possible change on all network filesystems: do not
+edit or replace a file while it is being processed. Browser polling is periodic,
+so an already displayed result may remain visible briefly after a change.
 
 ## Printer profiles
 

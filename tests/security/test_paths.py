@@ -11,7 +11,34 @@ from afpstudio.security.paths import (
     atomic_write_bytes,
     resolve_under_roots,
     safe_output_path,
+    FileGrants,
 )
+
+
+def test_dialog_grant_is_single_file_single_purpose_and_single_use(tmp_path):
+    selected = tmp_path / "selected.afp"
+    other = tmp_path / "other.afp"
+    selected.write_bytes(b"a")
+    other.write_bytes(b"b")
+    grants = FileGrants()
+    token = grants.issue(selected, "document")
+    with pytest.raises(PathError):
+        grants.consume(token, other, "document")
+    with pytest.raises(PathError):
+        grants.consume(token, selected, "document")
+    token = grants.issue(selected, "document")
+    with pytest.raises(PathError):
+        grants.consume(token, selected, "formdef")
+    token = grants.issue(selected, "document")
+    assert grants.consume(token, selected, "document") == selected.resolve()
+    with pytest.raises(PathError):
+        grants.consume(token, selected, "document")
+
+
+@pytest.mark.parametrize("path", [r"\\?\C:\file.afp", r"\\.\PhysicalDrive0"])
+def test_device_paths_are_rejected_before_access(path, tmp_path):
+    with pytest.raises(PathError):
+        resolve_under_roots(path, [tmp_path])
 
 
 def test_a_file_inside_a_root_is_accepted(tmp_path):

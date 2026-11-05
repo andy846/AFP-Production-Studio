@@ -24,7 +24,7 @@ operator chooses. The realistic risks are:
 | Control | Where |
 |---|---|
 | Every path from the browser is resolved and checked against an allow-list of directories | `afpstudio/security/paths.py` — `resolve_under_roots` |
-| Traversal, UNC paths and paths with a null byte are rejected | `resolve_under_roots` |
+| Traversal outside allowed roots, device paths and paths with a null byte are rejected; network files require a configured root or an explicit native selection | `resolve_under_roots`, `FileGrants` |
 | An export may not point at the AFP it is describing, even as a hard link | `safe_output_path` |
 | Exports are written to a temporary file in the target directory and then renamed | `atomic_write_bytes` |
 | The source AFP is opened read-only everywhere | the whole code base; there is no write path for document input |

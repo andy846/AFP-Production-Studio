@@ -34,6 +34,18 @@ from afpstudio.viewer.renderer import PageRenderer
 from afpstudio.viewer.resources import missing_resources
 
 
+class SourceChangedError(RuntimeError):
+    """A source disappeared or changed after the document was opened."""
+
+
+def source_signature(path: Path):
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise SourceChangedError("A source file is unavailable or access was denied. Reopen the document.") from exc
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
 def sf_name(sf_id: int) -> str:
     """Human readable name of a structured field."""
     return SF_NAMES.get(sf_id, f"Unknown (0x{sf_id:06X})")
@@ -83,6 +95,12 @@ class DocumentSession:
     parser_failures: list[dict[str, Any]] = field(default_factory=list)
     parser: str = "studio"
     parse_complete: bool = True
+    source_signatures: dict[Path, tuple] = field(default_factory=dict)
+
+    def check_sources(self) -> None:
+        for path, expected in self.source_signatures.items():
+            if source_signature(path) != expected:
+                raise SourceChangedError("A source file changed while the document was open. Reopen it before using the results.")
 
     @property
     def page_count(self) -> int:
@@ -96,11 +114,13 @@ class DocumentSession:
 
     def page_svg(self, page: int, cache: PageCache | None = None) -> str:
         """Render one page, using the cache when there is one."""
+        self.check_sources()
         if cache is not None:
             cached = cache.get(self.document_id, page)
             if cached is not None:
                 return cached
         svg = self.renderer.render(page)
+        self.check_sources()
         if cache is not None:
             cache.put(self.document_id, page, svg)
         return svg
@@ -261,6 +281,10 @@ class DocumentStore:
         path = Path(path)
         check = check_cancelled or (lambda: None)
         check()
+        sources = {path: source_signature(path)}
+        for form_def in form_defs or ():
+            form_path = Path(form_def)
+            sources[form_path] = source_signature(form_path)
         index = build_index(path, progress=progress)
         check()
         analysis = analyse_media(index, path)
@@ -307,6 +331,10 @@ class DocumentStore:
         )
         check()
 
+        for source, signature in sources.items():
+            if source_signature(source) != signature:
+                raise SourceChangedError("A source file changed during processing. Reopen it and try again.")
+
         session = DocumentSession(
             document_id=uuid.uuid4().hex,
             path=path,
@@ -320,6 +348,7 @@ class DocumentStore:
             parser_failures=parser_failures,
             parser=parser,
             parse_complete=preflight.parse_complete,
+            source_signatures=sources,
         )
         with self._lock:
             self._documents[session.document_id] = session

@@ -4,6 +4,16 @@ All notable changes to this project are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+* Open local files and Windows mapped or UNC shares from the native file
+  picker or Windows Explorer. File-picker grants apply only to the selected
+  document or FormDef and are consumed once.
+* Open documents in the viewer workspace; advanced print options remain
+  available without switching to a separate opening page.
+* Detect common file replacement and metadata changes before serving cached
+  results; changed or unavailable sources must be reopened.
+
 ## [0.2.2] — 2026-11-05
 
 * Open an AFP file passed to the desktop executable by Windows Explorer.

@@ -164,3 +164,12 @@ def test_desktop_exposes_startup_file_once(fake_webview, desktop_env, tmp_path):
     bridge = fake_webview["windows"][0].js_api
     assert bridge.consume_startup_file() == str(source.resolve())
     assert bridge.consume_startup_file() is None
+
+
+def test_missing_startup_file_reports_error(fake_webview, desktop_env, tmp_path):
+    from afpstudio.desktop import run_desktop
+
+    assert run_desktop(startup_file=str(tmp_path / "missing.afp")) == 0
+    bridge = fake_webview["windows"][0].js_api
+    with pytest.raises(RuntimeError, match="not found|unavailable"):
+        bridge.consume_startup_file()

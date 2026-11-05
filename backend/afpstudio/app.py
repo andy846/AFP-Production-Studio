@@ -17,13 +17,14 @@ from .printer_profiles.store import ProfileStore
 from .resources import frontend_dir
 from .security.csrf import issue_token
 from .security.headers import apply_headers
+from .security.paths import FileGrants
 from .viewer.cache import PageCache
 from .viewer.jobs import JobManager
 
 FRONTEND_DIR = frontend_dir()
 
 
-def create_app(config: Config | None = None, startup_file=None) -> Flask:
+def create_app(config: Config | None = None, startup_file=None, file_grants=None) -> Flask:
     """Build the Flask application."""
     config = config or CONFIG
     config.ensure_dirs()
@@ -48,6 +49,7 @@ def create_app(config: Config | None = None, startup_file=None) -> Flask:
     app.extensions["studio"] = {
         "config": config,
         "startup_file": startup_file,
+        "file_grants": file_grants or FileGrants(),
         "documents": DocumentStore(PageCache(config.page_cache_bytes)),
         "jobs": JobManager(config.max_concurrent_jobs),
         "profiles": profiles,

@@ -23,7 +23,7 @@ from typing import Any
 
 from .app import create_app
 from .config import CONFIG, Config
-from .security.paths import PathError, resolve_under_roots
+from .security.paths import FileGrants, PathError, resolve_selected_file
 
 #: The title of the native window.
 WINDOW_TITLE = "AFP Production Studio"
@@ -40,26 +40,32 @@ WINDOW_MIN_HEIGHT = 700
 class DesktopBridge:
     """The small API the window may call.
 
-    Only two things are exposed: choosing a file to open and choosing
-    where to write a report. Both return paths and nothing else.
+    The bridge exposes native file selection, report destination selection
+    and the startup file. Native input selection also returns a one-use
+    capability limited to the selected file and purpose.
 
     The bridge never opens a document and never writes a file. It
-    hands a path back to the page, and the page passes that path to
-    the ordinary HTTP API, where the same allow-list and the same
-    "never overwrite the source AFP" rule apply. A native dialog is a
-    convenience, never a way around the checks.
+    hands the selection back to the page, which passes it to the HTTP API.
+    The API verifies the capability and the file path, and retains the
+    "never overwrite the source AFP" rule.
     """
 
-    def __init__(self, window: Any = None, startup_file: str | None = None) -> None:
+    def __init__(self, window: Any = None, startup_file: str | None = None, file_grants=None, startup_error: str | None = None) -> None:
         self._window = window
         self._lock = threading.Lock()
         self._startup_file = startup_file
+        self._file_grants = file_grants
+        self._startup_error = startup_error
 
     def consume_startup_file(self) -> str | None:
         """Return the launch argument once, without exposing it in a URL."""
         with self._lock:
             path = self._startup_file
             self._startup_file = None
+            error = self._startup_error
+            self._startup_error = None
+            if error:
+                raise RuntimeError(error)
             return path
 
     def attach(self, window: Any) -> None:
@@ -101,7 +107,10 @@ class DesktopBridge:
         )
         if not paths:
             return {"cancelled": True, "path": ""}
-        return {"cancelled": False, "path": paths[0]}
+        result = {"cancelled": False, "path": paths[0]}
+        if self._file_grants is not None:
+            result["grant"] = self._file_grants.issue(paths[0], "document")
+        return result
 
     def pick_form_definition(self) -> dict[str, Any]:
         """Ask the operator to choose an external form definition."""
@@ -112,7 +121,10 @@ class DesktopBridge:
         )
         if not paths:
             return {"cancelled": True, "path": ""}
-        return {"cancelled": False, "path": paths[0]}
+        result = {"cancelled": False, "path": paths[0]}
+        if self._file_grants is not None:
+            result["grant"] = self._file_grants.issue(paths[0], "formdef")
+        return result
 
     def save_report_file(self, default_name: str = "", file_type: str = "csv") -> dict[str, Any]:
         """Ask the operator where to write an exported report."""
@@ -136,9 +148,10 @@ class LocalServer:
     never collide.
     """
 
-    def __init__(self, config: Config | None = None, startup_file: Path | None = None) -> None:
+    def __init__(self, config: Config | None = None, startup_file: Path | None = None, file_grants=None) -> None:
         self.config = config or CONFIG
         self.startup_file = startup_file
+        self.file_grants = file_grants
         self._server: Any = None
         self._thread: threading.Thread | None = None
 
@@ -146,7 +159,7 @@ class LocalServer:
         """Start serving and return the URL the window should load."""
         from werkzeug.serving import make_server
 
-        app = create_app(self.config, startup_file=self.startup_file)
+        app = create_app(self.config, startup_file=self.startup_file, file_grants=self.file_grants)
         server = make_server("127.0.0.1", 0, app, threaded=True)
         self._server = server
         thread = threading.Thread(
@@ -194,18 +207,19 @@ def run_desktop(config: Config | None = None, startup_file: str | None = None) -
         return 2
 
     approved_file = None
-    if startup_file and not startup_file.startswith("\\\\"):
+    startup_error = None
+    if startup_file:
         try:
-            path = Path(startup_file).expanduser().resolve(strict=True)
-            approved_file = resolve_under_roots(startup_file, [path.parent])
-        except (OSError, ValueError, PathError):
-            pass
-    server = LocalServer(config, startup_file=approved_file)
+            approved_file = resolve_selected_file(startup_file)
+        except (OSError, ValueError, PathError) as exc:
+            startup_error = str(exc)
+    grants = FileGrants()
+    server = LocalServer(config, startup_file=approved_file, file_grants=grants)
     url = server.start()
     print(f"AFP Production Studio is serving on {url}")
     print("Close the window to stop it.")
 
-    bridge = DesktopBridge(startup_file=str(approved_file) if approved_file else startup_file)
+    bridge = DesktopBridge(startup_file=str(approved_file) if approved_file else startup_file, file_grants=grants, startup_error=startup_error)
     window = webview.create_window(
         WINDOW_TITLE,
         url,

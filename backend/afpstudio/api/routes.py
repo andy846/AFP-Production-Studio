@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request, session
 
-from afpstudio.document_model.model import DocumentStore
+from afpstudio.document_model.model import DocumentStore, SourceChangedError
 from afpstudio.parser_adapters.alpheus import AlpheusAdapter
 from afpstudio.parser_adapters.contract import AdapterError
 from afpstudio.preflight.engine import STATUSES
@@ -140,11 +140,15 @@ def open_document():
     payload = request.get_json(silent=True) or {}
     raw_path = payload.get("path")
     try:
-        path = resolve_under_roots(raw_path, _config().allowed_roots())
+        grant = payload.get("path_grant")
+        if grant:
+            path = current_app.extensions["studio"]["file_grants"].consume(grant, raw_path, "document")
+        else:
+            path = resolve_under_roots(raw_path, _config().allowed_roots())
     except PathError as exc:
         startup = current_app.extensions["studio"].get("startup_file")
         try:
-            candidate = resolve_under_roots(raw_path, [startup.parent]) if startup else None
+            candidate = resolve_under_roots(raw_path, [startup.parent]) if startup and not payload.get("path_grant") else None
         except PathError:
             candidate = None
         if candidate is None or candidate != startup:
@@ -165,10 +169,16 @@ def open_document():
         )
 
     form_defs: list[Path] = []
-    for raw_form_def in payload.get("form_defs") or ():
+    grants = payload.get("form_def_grants") or []
+    form_inputs = payload.get("form_defs") or []
+    if not isinstance(grants, list) or not isinstance(form_inputs, list):
+        return _error("Form definitions and their grants must be lists.", 400, "invalid_request")
+    for index, raw_form_def in enumerate(form_inputs):
         try:
+            grant = grants[index] if index < len(grants) else None
             form_defs.append(
-                resolve_under_roots(raw_form_def, config.allowed_roots())
+                current_app.extensions["studio"]["file_grants"].consume(grant, raw_form_def, "formdef")
+                if grant else resolve_under_roots(raw_form_def, config.allowed_roots())
             )
         except PathError as exc:
             return _error(str(exc), 400, "invalid_path")
@@ -261,6 +271,11 @@ def _session_or_error(document_id: str):
         return None, _error(
             "Unknown document. Open it again.", 404, "document_not_found"
         )
+    try:
+        document.check_sources()
+    except SourceChangedError as exc:
+        _store().close(document_id)
+        return None, _error(str(exc), 409, "source_changed")
     return document, None
 
 
@@ -287,7 +302,11 @@ def page_svg(document_id: str, page: int):
         return error
     if page < 0 or page >= document.page_count:
         return _error("No such page.", 404, "page_not_found")
-    svg = document.page_svg(page, cache=_store().cache)
+    try:
+        svg = document.page_svg(page, cache=_store().cache)
+    except (SourceChangedError, OSError) as exc:
+        _store().close(document_id)
+        return _error(str(exc), 409, "source_changed")
     response = current_app.response_class(svg, mimetype="image/svg+xml")
     response.headers["Cache-Control"] = "no-store"
     return response

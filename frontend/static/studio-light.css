@@ -22,6 +22,11 @@ body { background: linear-gradient(135deg, #e9f0ec 0%, #f7f8f2 55%, #e5eeeb 100%
 .brand-text em { color: #526e68; letter-spacing: 1px; margin-top: 3px; }
 .privacy-note { color: #17684f; background: #e7f3ed; border-color: #b4d9c6; }
 .opener { overflow: auto; padding: 36px 20px; }
+.viewer-stage .opener { width: 100%; min-height: 300px; grid-area: 1 / 1; }
+.viewer-stage .page-holder { grid-area: 1 / 1; }
+.viewer-stage .opener:not([hidden]) { z-index: 2; }
+.open-options { margin-top: 16px; color: var(--ink-dim); }
+.open-options summary { cursor: pointer; font-weight: 600; }
 .opener-inner { width: min(850px,100%); padding: 36px 40px; border-radius: 5px; background: #fff; border-top: 5px solid var(--accent); }
 .eyebrow { display: flex; justify-content: space-between; gap: 12px; color: var(--accent); font: 700 11px var(--mono); letter-spacing: 1px; margin-bottom: 16px; }
 .eyebrow span, .field-hint, .field small { color: var(--ink-faint); font: 12px var(--sans); letter-spacing: 0; }

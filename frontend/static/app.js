@@ -22,7 +22,9 @@
     tab: "viewer",
     tree: null,
     jobTimer: null,
-    openJobId: null
+    openJobId: null,
+    pathGrant: null,
+    formDefGrant: null
   };
 
   const $ = (id) => document.getElementById(id);
@@ -67,7 +69,7 @@
     try {
       const result = await api[method]();
       if (!result || result.cancelled) return null;
-      return result.path || null;
+      return result.path ? result : null;
     } catch (err) {
       setStatus("The file dialog could not be opened: " + err.message);
       return null;
@@ -120,6 +122,7 @@
         "Request failed (" + response.status + ").";
       const error = new Error(message);
       error.code = payload && payload.code;
+      if (error.code === "source_changed") invalidateDocument(message);
       throw error;
     }
     return payload;
@@ -130,6 +133,8 @@
   /* ------------------------------------------------------------------ */
 
   function initOpener() {
+    $("viewer-stage").prepend($("opener"));
+    $("viewer-empty").hidden = true;
     // The Browse buttons only work where the desktop shell provides a
     // native dialog. In a browser tab they are hidden, because there
     // is nothing behind them.
@@ -146,21 +151,34 @@
           $("open-form").requestSubmit();
         }
       } catch (err) {
-        setStatus("Could not open startup file: " + err.message);
+        $("open-error").textContent = "Could not open startup file: " + err.message;
+        setStatus($("open-error").textContent);
       }
     });
 
     $("browse-button").addEventListener("click", async () => {
-      const path = await pickFile("pick_afp_file");
-      if (path) {
-        $("path-input").value = path;
+      const selected = await pickFile("pick_afp_file");
+      if (selected) {
+        $("path-input").value = selected.path;
+        state.pathGrant = selected.grant || null;
         $("open-error").textContent = "";
+        $("open-form").requestSubmit();
       }
     });
 
     $("browse-formdef-button").addEventListener("click", async () => {
-      const path = await pickFile("pick_form_definition");
-      if (path) $("formdef-input").value = path;
+      const selected = await pickFile("pick_form_definition");
+      if (selected) { $("formdef-input").value = selected.path; state.formDefGrant = selected.grant || null; }
+    });
+
+    $("path-input").addEventListener("input", () => { state.pathGrant = null; });
+    $("formdef-input").addEventListener("input", () => { state.formDefGrant = null; });
+    $("open-new").addEventListener("click", () => {
+      document.querySelector('[data-tab="viewer"]').click();
+      $("opener").hidden = false;
+      $("viewer-empty").hidden = true;
+      if (nativeApi()) $("browse-button").click();
+      else $("path-input").focus();
     });
 
     $("open-form").addEventListener("submit", async (event) => {
@@ -177,11 +195,14 @@
       try {
         const body = {
           path: path,
+          path_grant: state.pathGrant,
           profile: $("profile-select").value || null,
           use_java_parser: $("java-parser").checked
         };
         const formDef = $("formdef-input").value.trim();
-        if (formDef) body.form_defs = [formDef];
+        if (formDef) { body.form_defs = [formDef]; body.form_def_grants = [state.formDefGrant]; }
+        state.pathGrant = null;
+        state.formDefGrant = null;
         const result = await api("/api/documents/open", {
           method: "POST",
           body: body
@@ -205,6 +226,25 @@
         setStatus(err.message);
       }
     });
+  }
+
+  function invalidateDocument(message) {
+    state.document = null;
+    state.preflight = null;
+    state.report = null;
+    $("doc-chip").hidden = true;
+    $("opener").hidden = false;
+    $("page-holder").textContent = "";
+    $("tree").textContent = "";
+    $("details").textContent = "";
+    $("structure-table").textContent = "";
+    $("preflight-table").textContent = "";
+    $("media-timeline").textContent = "";
+    $("report-body").textContent = "";
+    $("resources-table").textContent = "";
+    $("open-error").textContent = message;
+    document.querySelector('[data-tab="viewer"]').click();
+    setStatus(message);
   }
 
   function pollJob(jobId) {
@@ -244,7 +284,11 @@
   }
 
   async function afterOpen(summary) {
+    const previous = state.document;
     state.document = summary;
+    if (previous && previous.document_id !== summary.document_id) {
+      try { await api("/api/documents/" + previous.document_id, { method: "DELETE" }); } catch (err) { setStatus(err.message); }
+    }
     $("opener").hidden = true;
     $("tabs").hidden = false;
     $("workspace").hidden = false;
@@ -455,7 +499,11 @@
       ".svg";
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error("The page could not be rendered.");
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        if (data.code === "source_changed") invalidateDocument(data.error);
+        throw new Error(data.error || "The page could not be rendered.");
+      }
       const svg = await response.text();
       if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
       holder.innerHTML = svg;
@@ -992,9 +1040,9 @@
       el(
         "p",
         "empty-note",
-        "Documents are read from disk, indexed in memory and rendered on " +
-          "this machine. Nothing is uploaded, no telemetry is sent, and the " +
-          "server binds to the loopback interface only."
+        "Documents may be read from local storage or a selected network " +
+          "share, and are processed on this computer. No documents are " +
+          "uploaded to external services; the server uses loopback only."
       )
     );
     box.appendChild(privacyCard);
@@ -1156,6 +1204,11 @@
     initSearch();
     initExport();
     loadProfiles();
+    setInterval(async () => {
+      if (!state.document) return;
+      try { await api("/api/documents/" + state.document.document_id); }
+      catch (err) { if (err.code !== "source_changed") setStatus(err.message); }
+    }, 10000);
     $("close-document").addEventListener("click", async () => {
       if (!state.document) return;
       try {
@@ -1169,8 +1222,10 @@
       state.preflight = null;
       state.report = null;
       $("opener").hidden = false;
-      $("tabs").hidden = true;
-      $("workspace").hidden = true;
+      $("page-holder").textContent = "";
+      $("tree").textContent = "";
+      $("details").textContent = "";
+      $("viewer-empty").hidden = true;
       $("doc-chip").hidden = true;
       setStatus("Document closed.");
     });

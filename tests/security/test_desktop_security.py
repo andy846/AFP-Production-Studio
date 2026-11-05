@@ -98,6 +98,51 @@ def test_launch_argument_authorizes_only_that_file(tmp_path, monkeypatch):
         assert response.status_code == 200
 
 
+def test_native_selection_grant_opens_only_selected_file(tmp_path, monkeypatch):
+    from afpstudio.app import create_app
+    from afpstudio.config import Config
+    from afpstudio.security.csrf import HEADER_NAME
+    from afpstudio.security.paths import FileGrants
+    from afpstudio.testing.synthetic import simplex_document
+
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    selected = other_dir / "selected.afp"
+    neighbour = other_dir / "neighbour.afp"
+    selected.write_bytes(simplex_document(1))
+    neighbour.write_bytes(simplex_document(1))
+    monkeypatch.setenv("AFP_STUDIO_ALLOWED_ROOTS", str(allowed))
+    monkeypatch.setenv("AFP_STUDIO_DATA_DIR", str(tmp_path / "data"))
+    grants = FileGrants()
+    app = create_app(Config(), file_grants=grants)
+    with app.test_client() as client:
+        token = client.get("/api/csrf").get_json()["token"]
+        headers = {HEADER_NAME: token}
+        grant = grants.issue(selected, "document")
+        response = client.post("/api/documents/open", json={"path": str(neighbour), "path_grant": grant}, headers=headers)
+        assert response.status_code == 400
+        grant = grants.issue(selected, "document")
+        response = client.post("/api/documents/open", json={"path": str(selected), "path_grant": grant}, headers=headers)
+        assert response.status_code == 200
+        response = client.post("/api/documents/open", json={"path": str(selected), "path_grant": grant}, headers=headers)
+        assert response.status_code == 400
+
+
+def test_native_file_dialog_issues_a_purpose_bound_grant(tmp_path):
+    from afpstudio.security.paths import FileGrants
+
+    source = tmp_path / "file with spaces.afp"
+    source.write_bytes(b"test")
+    grants = FileGrants()
+    bridge = DesktopBridge(file_grants=grants)
+    bridge.attach(_FakeWindow((str(source),)))
+    result = bridge.pick_form_definition()
+    assert result["path"] == str(source)
+    assert grants.consume(result["grant"], result["path"], "formdef") == source.resolve()
+
+
 def test_a_chosen_export_path_still_cannot_overwrite_the_source(tmp_path):
     root = tmp_path
     source = root / "job.afp"
