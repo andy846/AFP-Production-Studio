@@ -62,6 +62,7 @@ def test_the_adapter_agrees_with_the_local_parser(tmp_path):
     assert result.complete is True
     assert result.page_count == index.page_count
     assert compare_with_local(result, index.page_count, sorted(analysis.medium_maps)) == []
+    assert compare_with_local(result, index.page_count, sorted(analysis.medium_maps), index=index, analysis=analysis) == []
 
 
 @requires_jar

@@ -180,6 +180,7 @@ def validate_result(data: Any) -> AdapterResult:
     adapter = data.get("adapter") or {}
     document = data.get("document") or {}
     _require(isinstance(document, dict), "'document' must be an object.")
+    _require(isinstance(data.get("complete"), bool), "Adapter result requires a boolean 'complete' field.")
 
     result = AdapterResult(
         contract_version=version,
@@ -193,7 +194,7 @@ def validate_result(data: Any) -> AdapterResult:
         structured_field_count=_as_int(
             document.get("structured_field_count", 0), "structured_field_count"
         ),
-        complete=bool(data.get("complete", True)),
+        complete=data["complete"],
     )
 
     for raw in data.get("pages") or ():
@@ -263,7 +264,8 @@ def validate_result(data: Any) -> AdapterResult:
 
 
 def compare_with_local(
-    adapter: AdapterResult, local_page_count: int, local_medium_maps: list[str]
+    adapter: AdapterResult, local_page_count: int, local_medium_maps: list[str],
+    *, index=None, analysis=None,
 ) -> list[dict[str, Any]]:
     """Compare the two parsers and describe every disagreement.
 
@@ -307,4 +309,32 @@ def compare_with_local(
             }
         )
 
+    if index is not None:
+        for page in adapter.pages:
+            number = page.page_number
+            if page.offset is None or number < 1 or number > len(index.page_starts):
+                continue
+            local_offset = int(index.page_starts[number - 1])
+            if page.offset != local_offset:
+                disagreements.append({
+                    "kind": "page_offset", "page": number, "offset": local_offset,
+                    "local": local_offset, "adapter": page.offset,
+                    "message": f"Page {number} starts at different offsets in the two parsers.",
+                })
+
+    if analysis is not None:
+        local_invokes = {item.offset: item for item in analysis.invokes}
+        java_invokes = {item.offset: item for item in adapter.invokes if item.offset is not None}
+        for offset in sorted(local_invokes.keys() | java_invokes.keys()):
+            local = local_invokes.get(offset)
+            java = java_invokes.get(offset)
+            local_name = local.name if local else None
+            java_name = java.name if java else None
+            if local_name != java_name:
+                disagreements.append({
+                    "kind": "invoke", "offset": offset,
+                    "page": local.page + 1 if local and local.page is not None and local.in_page else None,
+                    "local": local_name, "adapter": java_name,
+                    "message": f"The parsers disagree on the medium map invocation at offset {offset}.",
+                })
     return disagreements

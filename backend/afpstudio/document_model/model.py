@@ -95,6 +95,7 @@ class DocumentSession:
     parser_failures: list[dict[str, Any]] = field(default_factory=list)
     parser: str = "studio"
     parse_complete: bool = True
+    comparison_status: str = "not_requested"
     source_signatures: dict[Path, tuple] = field(default_factory=dict)
 
     def check_sources(self) -> None:
@@ -253,6 +254,7 @@ class DocumentSession:
             "parser": self.parser,
             "missing_resources": len(self.missing_resources),
             "parser_disagreements": len(self.parser_disagreements),
+            "comparison_status": self.comparison_status,
         }
 
 
@@ -307,10 +309,13 @@ class DocumentStore:
         disagreements: list[dict[str, Any]] = []
         parser_failures: list[dict[str, Any]] = []
         if adapter_result is not None:
+            incomplete = incomplete or not adapter_result.complete
             disagreements = compare_with_local(
                 adapter_result,
                 index.page_count,
                 sorted(analysis.medium_maps),
+                index=index,
+                analysis=analysis,
             )
         if adapter_error is not None:
             parser_failures.append(dict(adapter_error))
@@ -348,6 +353,8 @@ class DocumentStore:
             parser_failures=parser_failures,
             parser=parser,
             parse_complete=preflight.parse_complete,
+            comparison_status=("failed" if adapter_error or (adapter_result is not None and not adapter_result.complete)
+                               else "disagreed" if disagreements else "partial" if adapter_result is not None else "not_requested"),
             source_signatures=sources,
         )
         with self._lock:

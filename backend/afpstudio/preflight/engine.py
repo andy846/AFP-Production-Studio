@@ -567,6 +567,8 @@ def run_preflight(
                     "The two parsing engines disagree: "
                     f"{disagreement.get('message', '')}"
                 ),
+                page=disagreement.get("page"),
+                offset=disagreement.get("offset"),
                 source="parser",
                 detail=dict(disagreement),
             )

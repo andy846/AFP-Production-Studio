@@ -668,6 +668,20 @@
     const preflight = state.preflight;
     $("preflight-note").textContent =
       preflight.filename + " — " + preflight.status;
+    const comparison = $("preflight-global-findings");
+    comparison.textContent = "";
+    const comparisonStatus = state.document.comparison_status || "not_requested";
+    comparison.appendChild(el("p", "empty-note", "Parser comparison: " + comparisonStatus +
+      (comparisonStatus === "partial" ? " — page counts, page offsets, map names and IMM names/offsets only." : "")));
+    preflight.findings.filter((finding) => ["PARSER_DISAGREEMENT", "PARSER_FAILURE", "INCOMPLETE_PARSE"].includes(finding.code)).forEach((finding) => {
+      const button = el("button", "finding-link", finding.message + (finding.offset !== null && finding.offset !== undefined ? " (offset " + finding.offset + ")" : ""));
+      button.type = "button";
+      button.addEventListener("click", () => {
+        if (finding.page) showPage(finding.page);
+        setStatus(finding.message + (finding.offset !== null && finding.offset !== undefined ? " Offset: " + finding.offset : ""));
+      });
+      comparison.appendChild(button);
+    });
 
     preflight.pages.forEach((page) => {
       const run = el("button", "timeline-run", page.medium_map || "—");

@@ -101,6 +101,14 @@ the cross-check, Studio compares the two parsers:
 
 * the page counts must agree;
 * the sets of medium map names must agree.
+* reported page offsets and IMM names at their original offsets are
+  compared when the local index and media analysis are available.
+
+The 1.x comparison is **partial**, even when no discrepancies are found.
+It does not independently compare all structured fields, resources,
+triplets, duplex controls, or record framing. The current adapter's
+`in_page` flag is derived from its most recent page number, so it is not
+used to assert page association for an IMM between page brackets.
 
 Any difference is reported as a `PARSER_DISAGREEMENT` finding with a
 fail status. Studio does not pick a winner — it says the two engines

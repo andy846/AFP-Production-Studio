@@ -61,6 +61,7 @@ button.primary:hover { background: #0c5144; }
 tbody td { border-color: #e4ebe8; padding: 9px 10px; }
 tbody tr.is-selected { background: #d5ebe1; box-shadow: inset 3px 0 #126c5a; }
 .finding-link { border: 0; padding: 0; text-align: left; color: #175c4e; background: transparent; text-decoration: underline; }
+.comparison-findings { padding: 0 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 thead th { background: #eff5f2; color: #45635a; padding: 10px; }
 .status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 8px; background: #fff; }
 .status-pill::before { content: "●"; font-size: 9px; }

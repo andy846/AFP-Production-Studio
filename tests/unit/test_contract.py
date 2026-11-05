@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
 from afpstudio.parser_adapters.alpheus import AlpheusAdapter
 from afpstudio.parser_adapters.contract import (
@@ -70,6 +71,13 @@ def test_a_missing_version_is_refused():
         validate_result(payload)
 
 
+@pytest.mark.parametrize("value", [None, "false", 0, 1])
+def test_missing_or_non_boolean_complete_is_refused(value):
+    payload = sample_payload(complete=value)
+    with pytest.raises(AdapterError):
+        validate_result(payload)
+
+
 def test_a_non_object_is_refused():
     with pytest.raises(AdapterError):
         validate_result([1, 2, 3])
@@ -93,6 +101,39 @@ def test_disagreeing_medium_maps_are_reported():
 def test_agreement_produces_no_differences():
     result = validate_result(sample_payload())
     assert compare_with_local(result, 2, ["MAP01"]) == []
+
+
+def test_detailed_comparison_reports_offsets_and_page():
+    result = validate_result(sample_payload())
+    index = SimpleNamespace(page_starts=[11, 20])
+    analysis = SimpleNamespace(invokes=[SimpleNamespace(offset=30, name="MAP02", page=0, in_page=True)])
+    differences = compare_with_local(result, 2, ["MAP01"], index=index, analysis=analysis)
+    assert [(item["kind"], item["offset"], item["page"]) for item in differences] == [
+        ("page_offset", 11, 1), ("invoke", 30, 1)
+    ]
+    assert differences[1]["local"] == "MAP02"
+    assert differences[1]["adapter"] == "MAP01"
+
+
+def test_missing_invocation_is_reported_at_original_offset():
+    result = validate_result(sample_payload(invokes=[]))
+    analysis = SimpleNamespace(invokes=[SimpleNamespace(offset=42, name="MAP01", page=None, in_page=False)])
+    differences = compare_with_local(result, 2, ["MAP01"], analysis=analysis)
+    assert differences[0]["kind"] == "invoke"
+    assert differences[0]["offset"] == 42
+
+
+def test_incomplete_adapter_cannot_produce_pass(tmp_path):
+    from afpstudio.document_model.model import DocumentStore
+    from afpstudio.testing.synthetic import simplex_document
+
+    path = tmp_path / "job.afp"
+    path.write_bytes(simplex_document(2))
+    adapter = validate_result(sample_payload(complete=False))
+    document = DocumentStore().open(path, adapter_result=adapter)
+    assert document.preflight.status == "fail"
+    assert document.parse_complete is False
+    assert document.comparison_status == "failed"
 
 
 def test_missing_adapter_is_reported_cleanly(tmp_path):
