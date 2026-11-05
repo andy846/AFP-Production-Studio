@@ -26,6 +26,7 @@ from afpstudio.reports.statistics import build_statistics
 from afpstudio.security.csrf import current_token, require_csrf
 from afpstudio.security.paths import PathError, resolve_under_roots, safe_output_path
 from afpstudio.security.paths import atomic_write_bytes
+from afpstudio.viewer.resources import resource_dependencies
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -374,6 +375,33 @@ def search(document_id: str):
     structure = [row.as_dict() for row in document.search_structure(query)]
     text = document.search_text(query)
     return jsonify({"structure": structure, "text": text})
+
+
+@bp.get("/documents/<document_id>/resource-dependencies")
+def document_resource_dependencies(document_id: str):
+    document, error = _session_or_error(document_id)
+    if error:
+        return error
+    kind = request.args.get("kind", "references")
+    if kind not in ("references", "definitions", "warnings"):
+        return _error("Unknown resource index kind.", 400, "invalid_request")
+    try:
+        limit = int(request.args.get("limit", 100))
+        offset = int(request.args.get("offset", 0))
+        if not 1 <= limit <= 500 or offset < 0:
+            raise ValueError
+    except ValueError:
+        return _error("Invalid limit or offset.", 400, "invalid_request")
+    try:
+        result = resource_dependencies(document.index, document.path)
+        document.check_sources()
+    except (OSError, SourceChangedError) as exc:
+        _store().close(document_id)
+        return _error(str(exc), 409, "source_changed")
+    rows = result[kind]
+    return jsonify({"kind": kind, "items": rows[offset:offset + limit], "total": len(rows),
+                    "coverage": result["coverage"], "complete": result["complete"],
+                    "warnings": len(result["warnings"])})
 
 
 @bp.get("/documents/<document_id>/preflight")

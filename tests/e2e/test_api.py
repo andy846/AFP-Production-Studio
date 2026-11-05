@@ -54,6 +54,17 @@ def test_document_index_exposes_bounded_raw_results(app_client, tmp_path):
     assert app_client.get(endpoint + "?limit=100000").status_code == 400
 
 
+def test_resource_index_reports_coverage_and_rejects_invalid_limit(app_client, tmp_path):
+    path = tmp_path / "job.afp"
+    path.write_bytes(synthetic.simplex_document(1))
+    summary = open_document(app_client, path)
+    endpoint = f"/api/documents/{summary['document_id']}/resource-dependencies"
+    data = app_client.get(endpoint).get_json()
+    assert data["coverage"] == "partial_font_mapping"
+    assert isinstance(data["items"], list)
+    assert app_client.get(endpoint + "?limit=-1").status_code == 400
+
+
 def test_the_index_page_loads(app_client):
     response = app_client.get("/")
     assert response.status_code == 200

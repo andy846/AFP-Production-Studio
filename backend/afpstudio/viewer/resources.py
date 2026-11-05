@@ -27,6 +27,50 @@ EMBED_FIELDS = {
 }
 
 
+def resource_dependencies(index: DocumentIndex, path: Path, max_items: int = 10000) -> dict[str, Any]:
+    """List observed font definitions and MCF references, without inferring scope."""
+    definitions = []
+    references = []
+    warnings = []
+    with Path(path).open("rb") as handle:
+        for i in range(index.field_count):
+            sf_id = index.sf_ids[i]
+            offset = int(index.offsets[i])
+            if len(definitions) + len(references) + len(warnings) >= max_items:
+                warnings.append({"code": "RESOURCE_INDEX_LIMIT", "offset": offset})
+                break
+            if sf_id in EMBED_FIELDS.values():
+                kind = next(k for k, value in EMBED_FIELDS.items() if value == sf_id)
+                name = index.token_at(i)
+                if name:
+                    definitions.append({"kind": kind, "name": name, "offset": offset})
+            elif sf_id in (MCF1, MCF2):
+                if index.flags[i]:
+                    warnings.append({"code": "MCF_UNSUPPORTED_FLAGS", "offset": offset})
+                    continue
+                # The upstream helper tolerates malformed groups and may stop
+                # early without a diagnostic, so its output is not complete.
+                warnings.append({"code": "MCF_PARTIAL_VALIDATION", "offset": offset})
+                length = int(index.lengths[i]) - 9
+                handle.seek(offset + 9)
+                data = handle.read(length)
+                if len(data) != length:
+                    warnings.append({"code": "MCF_TRUNCATED", "offset": offset})
+                    break
+                for kind, names in mcf_resource_names(data, sf_id == MCF1).items():
+                    for name in sorted(names):
+                        if len(definitions) + len(references) + len(warnings) >= max_items:
+                            warnings.append({"code": "RESOURCE_INDEX_LIMIT", "offset": offset})
+                            break
+                        references.append({"kind": kind, "name": name, "offset": offset,
+                                           "declared_on_page": int(index.pages[i]) + 1 if index.in_page[i] else None})
+    present = {(item["kind"], item["name"]) for item in definitions}
+    for reference in references:
+        reference["status"] = ("definition_present_scope_unverified" if (reference["kind"], reference["name"]) in present else "external_unverified")
+    return {"definitions": definitions, "references": references, "warnings": warnings,
+            "coverage": "partial_font_mapping", "complete": not warnings and not index.truncated}
+
+
 def missing_resources(
     index: DocumentIndex, path: Path
 ) -> list[dict[str, Any]]:

@@ -92,6 +92,25 @@ def test_a_missing_font_is_reported_as_a_missing_resource(tmp_path):
     assert any(item["name"] == "NOPE01" for item in missing)
 
 
+def test_font_dependency_preserves_offset_and_does_not_claim_scope(tmp_path):
+    from afpstudio.viewer.resources import resource_dependencies
+    from afpstudio.viewer.index import build_index
+
+    font_name = synthetic.encode_name("NOPE01")
+    group = bytes([1]) + b"\x00\x00\x00" + font_name + b"\xff" * 16
+    mcf = synthetic.structured_field(0xD3B18A, bytes([len(group)]) + b"\x00\x00\x00" + group)
+    before = synthetic.bdt() + synthetic.bpg()
+    path = tmp_path / "font.afp"
+    path.write_bytes(before + mcf + synthetic.epg() + synthetic.edt())
+    result = resource_dependencies(build_index(path), path)
+    assert result["coverage"] == "partial_font_mapping"
+    assert result["complete"] is False
+    resource = next(item for item in result["references"] if item["name"] == "NOPE01")
+    assert resource["offset"] == len(before)
+    assert resource["declared_on_page"] == 1
+    assert resource["status"] == "external_unverified"
+
+
 def test_search_finds_the_structured_fields(tmp_path):
     path = tmp_path / "job.afp"
     path.write_bytes(synthetic.simplex_document(2))

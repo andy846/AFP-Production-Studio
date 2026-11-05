@@ -896,7 +896,7 @@
     const body = el("tbody");
     if (!resourceFindings.length) {
       const tr = el("tr");
-      const td = el("td", "empty-note", "Every referenced resource is embedded.");
+      const td = el("td", "empty-note", "No missing resources detected by the supported font checks. Other resources and scopes may be unverified.");
       td.colSpan = 3;
       tr.appendChild(td);
       body.appendChild(tr);
@@ -919,6 +919,27 @@
         list.appendChild(el("li", "mono", name))
       );
       wrap.appendChild(list);
+    }
+    if (state.document) {
+      const documentId = state.document.document_id;
+      const section = el("div", "resource-references");
+      section.appendChild(el("h3", null, "Observed font references"));
+      const note = el("p", "empty-note", "Loading...");
+      section.appendChild(note);
+      wrap.appendChild(section);
+      api("/api/documents/" + documentId + "/resource-dependencies?limit=100")
+        .then((data) => {
+          if (!state.document || state.document.document_id !== documentId || !section.isConnected) return;
+          note.textContent = "Partial font mapping coverage; scope and external inventory are unverified. Showing " + data.items.length + " of " + data.total + "." + (data.complete ? "" : " Index incomplete.");
+          const refs = el("ul", "finding-list");
+          data.items.forEach((item) => {
+            const text = item.kind + " " + item.name + " — offset " + item.offset +
+              (item.declared_on_page ? ", declared on page " + item.declared_on_page : ", page not determined") + " — " + item.status;
+            const row = el("li", null, text);
+            refs.appendChild(row);
+          });
+          section.appendChild(refs);
+        }).catch((err) => { if (section.isConnected) note.textContent = err.message; });
     }
   }
 
