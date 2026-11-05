@@ -161,6 +161,32 @@ def test_changed_source_during_analysis_does_not_publish(tmp_path, monkeypatch):
     assert store.list() == []
 
 
+def test_changed_source_during_export_does_not_write_report(app_client, tmp_path, monkeypatch):
+    import afpstudio.api.routes as routes
+
+    source = tmp_path / "changing.afp"
+    source.write_bytes(synthetic.simplex_document(2))
+    summary = open_document(app_client, source)
+    token = app_client.get("/api/csrf").get_json()["token"]
+    target = tmp_path / "report.csv"
+    original = routes.export_csv
+
+    def change_during_export(*args):
+        result = original(*args)
+        with source.open("ab") as handle:
+            handle.write(b"changed")
+        return result
+
+    monkeypatch.setattr(routes, "export_csv", change_during_export)
+    response = app_client.post(
+        f"/api/documents/{summary['document_id']}/export",
+        json={"format": "csv", "path": str(target)}, headers={HEADER_NAME: token},
+    )
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "source_changed"
+    assert not target.exists()
+
+
 @pytest.mark.parametrize("fmt", ["csv", "xlsx"])
 def test_export_suffix_cannot_overwrite_source(app_client, tmp_path, fmt):
     path = tmp_path / ("job." + fmt)

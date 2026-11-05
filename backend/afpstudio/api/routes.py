@@ -422,7 +422,11 @@ def export_report(document_id: str):
         )
 
     try:
+        document.check_sources()
         atomic_write_bytes(target, data)
+    except SourceChangedError as exc:
+        _store().close(document_id)
+        return _error(str(exc), 409, "source_changed")
     except OSError as exc:
         return _error(f"The report could not be written: {exc}", 500, "io_error")
     return jsonify({"path": str(target), "bytes": len(data)})
