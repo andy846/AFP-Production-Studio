@@ -913,6 +913,24 @@ def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
         if r.font_id not in sized:
             baselines.setdefault(r.font_id, set()).add(r.y)
     pitch_est: dict = {}
+    # The same font can be used in both a tightly spaced address and a
+    # widely spaced table. A global median then makes the address overlap.
+    # Use a repeated pitch in a single column when there is enough evidence;
+    # retain the upstream median fallback for sparse or irregular layouts.
+    from bisect import bisect_right
+    columns: dict = {}
+    for run in page.texts:
+        if run.font_id not in sized and run.orientation == 0:
+            columns.setdefault((run.font_id, run.x), set()).add(run.y)
+    repeated: dict = {}
+    for (fid, _x), positions in columns.items():
+        ordered = sorted(positions)
+        gaps = sorted(b - a for a, b in zip(ordered, ordered[1:])
+                      if page.units_per_inch // 12 <= b - a <= page.units_per_inch // 2)
+        for position, gap in enumerate(gaps):
+            if bisect_right(gaps, gap + 4) - position >= 3:
+                repeated.setdefault(fid, []).append(gap)
+                break
     for fid, ys in baselines.items():
         ordered = sorted(ys)
         diffs = [
@@ -922,7 +940,7 @@ def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
         ]
         if diffs:
             diffs.sort()
-            pitch = diffs[len(diffs) // 2]
+            pitch = min(repeated[fid]) if fid in repeated else diffs[len(diffs) // 2]
             pitch_est[fid] = max(lo, min(hi, int(pitch / 1.2)))
 
     # Fallback for single-line fonts: horizontal gaps that imply a
