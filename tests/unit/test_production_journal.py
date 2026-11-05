@@ -52,3 +52,12 @@ def test_missing_evidence_and_chain_tampering_fail_closed(tmp_path):
         connection.execute("UPDATE events SET body='{}'")
     with pytest.raises(JournalError):
         journal.report(JOB)
+
+
+@pytest.mark.parametrize("stage", ["rejects", "reprints"])
+def test_reject_and_reprint_records_cannot_bypass_sheet_reconciliation(tmp_path, stage):
+    journal = ProductionJournal(tmp_path / "ledger.sqlite")
+    journal.append(JOB, evidence(stage, "sheets", 0))
+    with pytest.raises(JournalError):
+        journal.append(JOB, evidence(stage, "pages", 10))
+    assert len(journal.report(JOB)["events"]) == 1

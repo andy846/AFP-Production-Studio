@@ -320,6 +320,15 @@ def test_document_boundary_does_not_reassign_previous_page_or_carry_imm(indexed)
     assert [p.medium_map for p in result.pages] == ["MAP01", "MAP01", None]
 
 
+def test_clean_field_boundary_without_end_document_is_not_complete(indexed, permissive_profile):
+    raw = synthetic.simplex_document(1)[:-len(synthetic.edt())]
+    path, index, analysis = indexed("missing-edt.afp", raw)
+    result = run_preflight(path, index, analysis, profile=permissive_profile)
+    assert not result.parse_complete
+    assert result.status == STATUS_FAIL
+    assert any(warning["code"] == "DOCUMENT_UNCLOSED" for warning in index.warnings)
+
+
 @pytest.mark.parametrize("pages", [1, 3, 10])
 def test_page_count_is_stable(indexed, permissive_profile, pages):
     path, index, analysis = indexed(

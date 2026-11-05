@@ -4,6 +4,7 @@ Resource renaming and inherited print-file state cannot yet be proven, so
 those jobs are refused rather than emitted with broken references.
 """
 import hashlib
+from bisect import bisect_left
 import os
 from pathlib import Path
 import tempfile
@@ -11,7 +12,7 @@ import tempfile
 from afpstudio.document_model.structure import build_structure_index
 from afpstudio.preflight.media import analyse_media
 from afpstudio.security.paths import safe_output_path, PathError, publish_temporary
-from afpstudio.viewer.index import build_index
+from afpstudio.viewer.index import BMM, IMM, build_index
 from afpstudio.viewer.resources import resource_dependencies
 
 
@@ -70,7 +71,12 @@ def combine_documents(documents, target, *, document_numbers=None, overwrite=Fal
         except PathError as exc:
             raise DocumentOperationError(str(exc)) from exc
         for item in selected:
-            parts.append((document, item["offset"], item["end_offset"] + lengths[item["end_offset"]]))
+            start, end = item["offset"], item["end_offset"] + lengths[item["end_offset"]]
+            fields = range(bisect_left(index.offsets, start), bisect_left(index.offsets, end))
+            maps = {index.token_at(i) for i in fields if index.sf_ids[i] == BMM and index.token_at(i)}
+            if any(index.token_at(i) not in maps for i in fields if index.sf_ids[i] == IMM):
+                raise DocumentOperationError("A selected document invokes a medium map outside its own bracket.")
+            parts.append((document, start, end))
     if len(parts) > 500:
         raise DocumentOperationError("This operation supports at most 500 complete documents.")
     if target.exists() and not overwrite:

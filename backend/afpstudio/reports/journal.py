@@ -16,6 +16,9 @@ class JournalError(ValueError):
 
 
 STAGES = {"expected", "printing", "rejects", "reprints", "enveloping", "dispatch", "reconciliation", "signoff"}
+STAGE_UNITS = {"expected": ("pages", "sheets", "mailpieces"), "printing": ("sheets", "pages"),
+               "rejects": ("sheets",), "reprints": ("sheets",), "enveloping": ("mailpieces",),
+               "dispatch": ("mailpieces",), "reconciliation": ("unknown",), "signoff": ("unknown",)}
 
 
 def _gate(events):
@@ -29,6 +32,9 @@ def _gate(events):
         elif expected["value"] != observed["value"]:
             reasons.append(f"{stage} {unit} differ from the externally evidenced expectation.")
     for stage in ("rejects", "reprints"):
+        incompatible = [event for event in events if event["stage"] == stage and event["unit"] != "sheets"]
+        if incompatible and not any(event["stage"] == "reconciliation" and event["sequence"] > incompatible[-1]["sequence"] for event in events):
+            reasons.append(f"Earlier {stage} evidence uses an unsupported unit and requires external reconciliation.")
         item = latest.get((stage, "sheets"))
         if item is None:
             reasons.append(f"A reported {stage} sheet count is required, including an evidenced zero.")
@@ -96,8 +102,8 @@ class ProductionJournal:
         if set(payload) - {"stage", "unit", "value", "source", "reference", "recorded_by", "note"}:
             raise JournalError("Unknown evidence fields.")
         stage, unit, value = payload.get("stage"), payload.get("unit"), payload.get("value")
-        if stage not in STAGES or unit not in ("pages", "sheets", "mailpieces", "unknown"):
-            raise JournalError("Select a supported stage and an explicit quantity unit.")
+        if not isinstance(stage, str) or stage not in STAGES or unit not in STAGE_UNITS[stage]:
+            raise JournalError("Select a supported stage and its permitted quantity unit (rejects/reprints use sheets).")
         if stage in ("reconciliation", "signoff"):
             if unit != "unknown" or value is not None:
                 raise JournalError("Reconciliation/sign-off records are references, not quantities.")

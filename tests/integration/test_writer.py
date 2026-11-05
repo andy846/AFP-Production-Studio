@@ -8,7 +8,7 @@ from afpstudio.testing import synthetic
 
 
 def test_noop_roundtrip_preserves_unknown_fields_and_original_bytes(tmp_path):
-    raw = synthetic.bdt() + synthetic.structured_field(0xD3EEEE, b"\x00\xffUNKNOWN") + synthetic.bpg() + synthetic.epg() + synthetic.edt()
+    raw = synthetic.bdt() + synthetic.structured_field(0xD3FFFF, b"\x00\xffUNKNOWN") + synthetic.bpg() + synthetic.epg() + synthetic.edt()
     source = tmp_path / "original.afp"
     source.write_bytes(raw)
     target = tmp_path / "copy.afp"

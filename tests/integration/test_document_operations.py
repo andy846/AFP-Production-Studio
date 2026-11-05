@@ -38,3 +38,14 @@ def test_colliding_names_and_unverified_resource_closure_are_refused(tmp_path):
     with pytest.raises(DocumentOperationError):
         combine_documents([store.open(a)], target)
     assert not target.exists()
+
+
+def test_merge_does_not_borrow_other_document_media_definitions(tmp_path):
+    a, b = tmp_path / "dependent.afp", tmp_path / "definition.afp"
+    a.write_bytes(synthetic.DocumentSpec(with_form_map=False, page_invokes=["MAP01"]).build())
+    b.write_bytes(job("MAP01"))
+    store = DocumentStore()
+    target = tmp_path / "bad-merge.afp"
+    with pytest.raises(DocumentOperationError):
+        combine_documents([store.open(a), store.open(b)], target)
+    assert not target.exists()

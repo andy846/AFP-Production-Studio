@@ -64,17 +64,26 @@ production job.
 
 ## Acceptance evidence
 
-* Studio on portable CPython 3.13.18: **307 passed** with rebuilt optional
+* Studio on portable CPython 3.13.18: **311 passed** with rebuilt optional
   JDK 21 adapter and actual Edge. Browser smoke included open, positioned
   text, engineering copy, page jump, narrow layout and no app requests off loopback.
-* Vendored readAFP: **224 passed, 11 skipped, 3 xfailed**. Skips are unavailable
-  upstream sample/corpus cases; expected failures are existing AFP/PDF reference differences.
+* Vendored readAFP: **224 passed, 11 skipped, 3 xfailed** with the optional
+  fontTools test dependency. The clean 3.13.18 environment without fontTools
+  reported **220 passed, 15 skipped, 3 xfailed**. Expected failures are existing
+  AFP/PDF reference differences.
 * Packaged Windows smoke: native window launched, startup AFP opened 4 pages,
   SVG and IMM sequence verified, CSV/XLSX/PNG written, original SHA-256 unchanged,
   Java disabled. Window close stopped the child and bootloader with no residual
   test extraction folder. Export was checked via the EXE's loopback API.
   Native Browse/Save As click-through was not completed because the computer-use
   approval timed out.
+* The independent review caught three fail-open conditions. Added regressions
+  verify missing End Document cannot pass, merge cannot borrow another
+  document's medium map, and rejects/reprints cannot bypass sheet reconciliation
+  by changing units. All four new cases passed in the final suite.
+* Reviewed Windows executable: 24,298,880 bytes, 24 licence/notice archive
+  entries, zero Java archives. SHA-256:
+  `998e479a6f382027fb4fbbeef3115cd646173d2816938b8b6e6b922ddd616741`.
 * Clean desktop Python environment: `pip-audit` found no known vulnerabilities;
   `pip check` found no broken requirements. OSV returned no advisories in the
   72 Cargo coordinates from the converter wheel SBOM. This does not cover all

@@ -250,11 +250,18 @@ def build_index(path: Path, progress=None, input_format="standard", *, max_field
         index.warnings.append({"code": "EMPTY_INPUT", "offset": 0, "message": "Input contains no structured fields."})
         return index
 
+    def bracket_error(code, offset, message):
+        index.truncated = True
+        if len(index.warnings) < 100:
+            index.warnings.append({"code": code, "offset": offset, "message": message})
+
     with path.open("rb") as handle:
         with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mm:
             pos = 0
             page = -1
             page_open = False
+            document_start = None
+            group_depth = 0
             scope_stack: list[int] = []
             open_scope: dict[int, int] = {}
             last_report = 0.0
@@ -356,6 +363,8 @@ def build_index(path: Path, progress=None, input_format="standard", *, max_field
 
                 # Page structure.
                 if sf_id == BPG:
+                    if page_open:
+                        bracket_error("NESTED_PAGE", pos, "Begin Page occurs before the previous page ends.")
                     if index.page_count >= max_pages:
                         index.warnings.append({"code": "PAGE_LIMIT", "offset": pos, "message": "Indexed page limit reached; analysis is incomplete."})
                         index.truncated = True
@@ -369,12 +378,24 @@ def build_index(path: Path, progress=None, input_format="standard", *, max_field
                     index.page_field_starts.append(len(index.offsets))
                     index.page_field_ends.append(len(index.offsets) + 1)
                 elif sf_id == EPG:
+                    if not page_open:
+                        bracket_error("UNMATCHED_PAGE_END", pos, "End Page has no matching begin.")
                     if index.page_ends:
                         index.page_ends[-1] = pos + total
                         index.page_field_ends[-1] = len(index.offsets) + 1
                 elif sf_id == BDT:
+                    if document_start is not None:
+                        bracket_error("NESTED_DOCUMENT", pos, "Begin Document occurs before the previous document ends.")
+                    document_start = pos
                     index.documents += 1
+                elif sf_id == EDT:
+                    if document_start is None:
+                        bracket_error("UNMATCHED_DOCUMENT_END", pos, "End Document has no matching begin.")
+                    if page_open or group_depth:
+                        bracket_error("DOCUMENT_SCOPE_UNCLOSED", pos, "Document ends with an open page or page group.")
+                    document_start = None
                 elif sf_id == BNG:
+                    group_depth += 1
                     name = (
                         _decode_token(mm[pos + 9 : pos + 17])
                         if total >= HEADER_BYTES + 8
@@ -382,6 +403,11 @@ def build_index(path: Path, progress=None, input_format="standard", *, max_field
                     )
                     if name:
                         index.page_groups.append(name)
+                elif sf_id == ENG:
+                    if group_depth:
+                        group_depth -= 1
+                    else:
+                        bracket_error("UNMATCHED_PAGE_GROUP_END", pos, "End Named Page Group has no matching begin.")
 
                 field_index = len(index.offsets)
                 index.offsets.append(pos)
@@ -410,6 +436,12 @@ def build_index(path: Path, progress=None, input_format="standard", *, max_field
                         last_report = ratio
                         progress(ratio)
 
+    if document_start is not None:
+        bracket_error("DOCUMENT_UNCLOSED", document_start, "Begin Document has no matching End Document.")
+    if page_open:
+        bracket_error("PAGE_UNCLOSED", int(index.page_starts[-1]), "Begin Page has no matching End Page.")
+    if group_depth:
+        bracket_error("PAGE_GROUP_UNCLOSED", pos, "Named page group remains open at end of input.")
     if index.page_field_ends:
         index.page_field_ends[-1] = len(index.offsets)
     if progress is not None:

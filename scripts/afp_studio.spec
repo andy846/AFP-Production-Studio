@@ -98,6 +98,12 @@ a = Analysis(
     optimize=0,
 )
 
+# pywebview's shared hook collects Android's bridge even on Windows.
+# The desktop package uses WebView2 and does not ship any Java archive.
+android_bridge = "webview/lib/pywebview-android.jar"
+a.datas = [entry for entry in a.datas if entry[0].replace("\\", "/") != android_bridge]
+a.binaries = [entry for entry in a.binaries if entry[0].replace("\\", "/") != android_bridge]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
