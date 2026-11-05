@@ -216,8 +216,8 @@ def test_changed_source_during_export_does_not_write_report(app_client, tmp_path
     target = tmp_path / "report.csv"
     original = routes.export_csv
 
-    def change_during_export(*args):
-        result = original(*args)
+    def change_during_export(*args, **kwargs):
+        result = original(*args, **kwargs)
         with source.open("ab") as handle:
             handle.write(b"changed")
         return result

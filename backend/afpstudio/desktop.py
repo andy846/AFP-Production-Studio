@@ -128,7 +128,8 @@ class DesktopBridge:
 
     def save_report_file(self, default_name: str = "", file_type: str = "csv") -> dict[str, Any]:
         """Ask the operator where to write an exported report."""
-        suffix = "xlsx" if str(file_type).lower() == "xlsx" else "csv"
+        requested = str(file_type).lower()
+        suffix = requested if requested in ("csv", "xlsx", "afp", "png", "pdf", "tiff") else "csv"
         paths = self._dialog(
             "save",
             allow_multiple=False,
@@ -158,9 +159,10 @@ class LocalServer:
     def start(self) -> str:
         """Start serving and return the URL the window should load."""
         from werkzeug.serving import make_server
+        from .security.access_log import LocalRequestHandler
 
         app = create_app(self.config, startup_file=self.startup_file, file_grants=self.file_grants)
-        server = make_server("127.0.0.1", 0, app, threaded=True)
+        server = make_server("127.0.0.1", 0, app, threaded=True, request_handler=LocalRequestHandler)
         self._server = server
         thread = threading.Thread(
             target=server.serve_forever,

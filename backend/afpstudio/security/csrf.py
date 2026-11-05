@@ -43,13 +43,14 @@ def current_token() -> str | None:
 
 
 def _same_origin() -> bool:
-    origin = request.headers.get("Origin")
-    if origin is not None:
-        return urlparse(origin).netloc == request.host
-    referer = request.headers.get("Referer")
-    if referer is None:
+    origin = request.headers.get("Origin", request.headers.get("Referer"))
+    if origin is None:
         return True
-    return urlparse(referer).netloc == request.host
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    return parsed.scheme == request.scheme and parsed.netloc == request.host
 
 
 def validate() -> bool:

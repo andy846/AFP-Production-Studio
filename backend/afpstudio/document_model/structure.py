@@ -5,7 +5,7 @@ from afpstudio.viewer.index import BDT, EDT, BNG, ENG, BPG, HEADER_BYTES
 TLE = 0xD3A090
 
 
-def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 * 1024, preview_codec=None):
+def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 * 1024, preview_codec=None, max_triplets=100000):
     """Retain raw TLE triplets without guessing their character encoding."""
     if preview_codec not in (None, "cp037", "cp500"):
         raise ValueError("Unsupported preview codec.")
@@ -14,6 +14,7 @@ def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 *
     stack = []
     page = 0
     raw_bytes = 0
+    triplet_count = 0
     limited = False
     with path.open("rb") as source:
         for i, sf_id in enumerate(index.sf_ids):
@@ -34,6 +35,10 @@ def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 *
                     document["end_offset"] = offset
                     document = None
             elif sf_id == BNG:
+                if len(stack) >= 64:
+                    warnings.append({"code": "PAGE_GROUP_DEPTH_LIMIT", "offset": offset})
+                    limited = True
+                    break
                 group = {"id": len(groups) + 1, "name": index.token_at(i), "offset": offset, "end_offset": None, "parent_id": stack[-1]["id"] if stack else None, "document_id": document["id"] if document else None, "first_page": None, "last_page": None}
                 groups.append(group)
                 stack.append(group)
@@ -68,6 +73,11 @@ def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 *
                 else:
                     pos = 0
                     while pos < len(payload):
+                        if triplet_count >= max_triplets:
+                            entry["status"] = "triplet_limit"
+                            warnings.append({"code": "INDEX_TRIPLET_LIMIT", "offset": offset + HEADER_BYTES + pos})
+                            limited = True
+                            break
                         if len(payload) - pos < 2 or payload[pos] < 2 or pos + payload[pos] > len(payload):
                             entry["status"] = "malformed"
                             warnings.append({"code": "TLE_TRIPLET_INVALID", "offset": offset + HEADER_BYTES + pos})
@@ -80,8 +90,11 @@ def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 *
                             triplet["preview_codec"] = preview_codec
                             triplet["preview_basis"] = "operator_selected_unverified"
                         entry["triplets"].append(triplet)
+                        triplet_count += 1
                         pos += length
                 tags.append(entry)
+                if limited:
+                    break
     if document is not None:
         warnings.append({"code": "DOCUMENT_UNCLOSED", "offset": document["offset"]})
     warnings.extend({"code": "PAGE_GROUP_UNCLOSED", "offset": group["offset"]} for group in stack)

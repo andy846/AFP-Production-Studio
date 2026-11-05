@@ -27,7 +27,7 @@ from typing import Any
 CONTRACT_VERSION = "1.0.0"
 
 #: The contract version the bundled Java adapter speaks.
-ADAPTER_CONTRACT_VERSION = "1.0.0"
+ADAPTER_CONTRACT_VERSION = "2.0.0"
 
 
 class AdapterError(Exception):
@@ -343,6 +343,29 @@ def compare_with_local(
                 })
 
     if analysis is not None:
+        if adapter.contract_version == "2.0.0":
+            from afpstudio.preflight.media import DUPLEX_CONTROL_NAMES
+            for remote in adapter.medium_maps:
+                local = analysis.medium_maps.get(remote.name)
+                if local is None:
+                    continue
+                values = {value for mod in local.modifications.values() for value in mod.keyword(0xF4)}
+                explicit_duplex = None
+                if len(values) > 1:
+                    explicit_duplex = "conflict"
+                elif values:
+                    value = next(iter(values))
+                    explicit_duplex = DUPLEX_CONTROL_NAMES.get(value, f"unknown-0x{value:02X}")
+                checks = [("medium_map_offset", local.offset, remote.offset), ("duplex", explicit_duplex, remote.duplex)]
+                if local.descriptor:
+                    for label, a, b in (("medium_width", local.descriptor.width_mm, remote.width_mm),
+                                        ("medium_height", local.descriptor.height_mm, remote.height_mm)):
+                        if a is not None and b is not None and abs(a - b) > .05:
+                            checks.append((label, a, b))
+                for kind, local_value, remote_value in checks:
+                    if local_value != remote_value:
+                        disagreements.append({"kind": kind, "offset": local.offset, "local": local_value,
+                            "adapter": remote_value, "message": f"The parsers disagree on {kind} for medium map {local.name}."})
         local_invokes = {item.offset: item for item in analysis.invokes}
         java_invokes = {item.offset: item for item in adapter.invokes if item.offset is not None}
         for offset in sorted(local_invokes.keys() | java_invokes.keys()):
@@ -357,4 +380,6 @@ def compare_with_local(
                     "local": local_name, "adapter": java_name,
                     "message": f"The parsers disagree on the medium map invocation at offset {offset}.",
                 })
+    if len(disagreements) > 1000:
+        return disagreements[:1000] + [{"kind": "comparison_limit", "message": "Further differences omitted; comparison is incomplete."}]
     return disagreements

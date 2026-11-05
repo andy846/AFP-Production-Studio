@@ -98,6 +98,8 @@ class DocumentSession:
     comparison_status: str = "not_requested"
     source_signatures: dict[Path, tuple] = field(default_factory=dict)
     resource_inventory: list[dict] = field(default_factory=list)
+    preflight_snapshot: str = ""
+    mailpiece_rule: dict | None = None
 
     def check_sources(self) -> None:
         for path, expected in self.source_signatures.items():
@@ -139,7 +141,7 @@ class DocumentSession:
             candidates: Iterable[int] = range(self.index.field_count)
         else:
             candidates = self.index.fields_for_page(page)
-        for i in candidates:
+        for i in candidates[offset:offset + limit]:
             field_ref = self.index.field(i)
             rows.append(
                 FieldRow(
@@ -153,9 +155,7 @@ class DocumentSession:
                     in_page=field_ref.in_page,
                 )
             )
-            if len(rows) >= limit + offset:
-                break
-        return rows[offset : offset + limit]
+        return rows
 
     def page_for_offset(self, offset: int) -> int | None:
         """Map a byte offset back to the page that contains it."""
@@ -337,6 +337,7 @@ class DocumentStore:
             implicit_pages=max(0, renderer.page_count - index.page_count),
             parser=parser,
             check_cancelled=check,
+            expected_source_digest=adapter_result.input_sha256 if adapter_result else None,
         )
         check()
 
@@ -361,6 +362,7 @@ class DocumentStore:
                                else "disagreed" if disagreements else "partial" if adapter_result is not None else "not_requested"),
             source_signatures=sources,
             resource_inventory=[dict(item) for item in profile.resource_inventory] if profile else [],
+            mailpiece_rule=dict(profile.mailpiece_rule) if profile and profile.mailpiece_rule else None,
         )
         with self._lock:
             self._documents[session.document_id] = session

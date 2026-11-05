@@ -18,6 +18,11 @@ segno==1.6.6
 openpyxl==3.1.5
 et-xmlfile==2.0.0
 
+# Local preview conversion (MIT / MIT-CMU / Python imaging licence).
+resvg-py==0.5.0
+Pillow==13.0.0
+defusedxml==0.7.1
+
 # Test suite.
 pytest==9.0.3
 

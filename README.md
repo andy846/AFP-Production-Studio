@@ -18,6 +18,13 @@ The release history is in [`CHANGELOG.md`](CHANGELOG.md).
 Version 0.2.2 is for development and UAT. Production approval requires
 further security, performance and printer/RIP reconciliation testing.
 
+The `main` development build identifies itself as **0.3.0-dev**. Its Unified
+Engine adds explicit unspanned RDW input, original-offset TLE/positioned text,
+resource inventory evidence, optional independent JSONL comparison, constrained
+AFP engineering, preview conversion, batch preflight, and a local operator
+evidence journal. See [scope and acceptance](docs/V0_3_IMPLEMENTATION.md)
+before using any generated output in a production workflow.
+
 > **Version 0.2.0 runs as a program.** Since 0.2.0 there is a single
 > `AFP-Production-Studio.exe`: double-click it and a window opens. The
 > browser mode is still there if you want it.
@@ -39,6 +46,14 @@ further security, performance and printer/RIP reconciliation testing.
   report skeleton for reconciling the job against the plant.
 * **Settings** — printer profiles, their media maps and their rules, and
   the status of the optional Java parser.
+* **Document Index** — document/page-group brackets, raw TLE, positioned
+  preview text, and candidate mailpieces when an evidenced customer rule is configured.
+* **Engineering** — verified byte-identical copy, same-length IMM/TLE edits,
+  constrained complete-document extract/merge, and PDF/PNG/TIFF preview output.
+* **Batch** — local preflight of up to 20 files without retaining a session for
+  each job or automatically rendering pages.
+* **Production evidence** — persistent manual records with separate pages,
+  sheets and mailpieces, same-unit checks and an operator sign-off record.
 
 ## The three media states
 
@@ -64,8 +79,8 @@ Download `AFP-Production-Studio.exe` from the
 and double-click it. A window opens. There is no server to start, no
 port to remember and no browser tab to find.
 
-Windows shows an "Windows protected your PC" banner, because the
-executable is not code-signed. Choose **More info** and **Run anyway**.
+The Windows UAT executable is unsigned. If Windows or your organisation's
+endpoint controls block it, follow your normal software approval process.
 
 Inside the window, **Browse** opens a native file dialog for the AFP
 file and for an external form definition, and the export button opens

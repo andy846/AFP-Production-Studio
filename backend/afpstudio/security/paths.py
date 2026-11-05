@@ -146,7 +146,20 @@ def safe_output_path(raw, roots: list[Path], source: Path | None = None) -> Path
     return resolved
 
 
-def atomic_write_bytes(target: Path, payload: bytes) -> Path:
+def publish_temporary(temporary: Path, target: Path, *, overwrite=False) -> None:
+    """Publish a same-directory temporary file without an unconfirmed replacement."""
+    if overwrite:
+        os.replace(temporary, target)
+    elif os.name == "nt":
+        # Windows rename fails if the destination exists and does not need
+        # hard-link support on the selected filesystem/share.
+        os.rename(temporary, target)
+    else:
+        os.link(temporary, target)
+        temporary.unlink()
+
+
+def atomic_write_bytes(target: Path, payload: bytes, *, overwrite=True, verify=None) -> Path:
     """Write ``payload`` to ``target`` via a temp file and one rename.
 
     A failed or interrupted write leaves the previous file untouched
@@ -162,7 +175,9 @@ def atomic_write_bytes(target: Path, payload: bytes) -> Path:
             fh.write(payload)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp_path, target)
+        if verify is not None:
+            verify()
+        publish_temporary(tmp_path, target, overwrite=overwrite)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise

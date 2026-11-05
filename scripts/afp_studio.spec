@@ -14,11 +14,15 @@
 
 # SPECPATH is the directory holding this file, which is scripts/.
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
+from PyInstaller.utils.hooks import copy_metadata
 
 readafp_src = os.path.join(REPO_ROOT, "backend", "vendor", "readafp", "src")
 readafp_pkg = os.path.join(readafp_src, "readafp")
 
 datas = [
+    (os.path.join(REPO_ROOT, "LICENSE"), "licenses/Studio"),
+    (os.path.join(REPO_ROOT, "docs", "LICENSE_COMPLIANCE.md"), "licenses/Studio"),
+    (os.path.join(REPO_ROOT, "backend", "vendor", "readafp", "LICENSE.MIT"), "licenses/readAFP"),
     (os.path.join(REPO_ROOT, "frontend", "templates"), "frontend/templates"),
     (os.path.join(REPO_ROOT, "frontend", "static"), "frontend/static"),
     (
@@ -38,6 +42,10 @@ datas = [
     (os.path.join(readafp_pkg, "static"), "readafp/static"),
     (os.path.join(readafp_pkg, "samples"), "readafp/samples"),
 ]
+
+for package in ("Flask", "Werkzeug", "Jinja2", "MarkupSafe", "itsdangerous", "click", "blinker",
+                "segno", "openpyxl", "et-xmlfile", "Pillow", "resvg-py", "defusedxml", "pywebview"):
+    datas += copy_metadata(package, recursive=True)
 
 hiddenimports = [
     "webview",
@@ -73,7 +81,6 @@ a = Analysis(
         "_pytest",
         "matplotlib",
         "numpy",
-        "PIL",
         # pywebview can drive a Qt window, but this build uses the
         # Windows WebView2 control. Excluding Qt keeps roughly twenty
         # megabytes of unused runtime out of the executable.

@@ -34,6 +34,9 @@ RUNTIME_PACKAGES = [
     "segno==1.6.6",
     "openpyxl==3.1.5",
     "et-xmlfile==2.0.0",
+    "resvg-py==0.5.0",
+    "Pillow==13.0.0",
+    "defusedxml==0.7.1",
     "pywebview==6.2.1",
     "pyinstaller==6.12.0",
 ]
@@ -63,17 +66,6 @@ def ensure_dependencies() -> None:
 
 def build() -> Path:
     """Freeze the application and return the path of the executable."""
-    for folder in ("build", "dist"):
-        target = REPO_ROOT / folder
-        if target.exists():
-            for item in target.iterdir():
-                if item.is_dir():
-                    import shutil
-
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
-
     _run(
         [
             sys.executable,

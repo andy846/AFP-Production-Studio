@@ -28,6 +28,8 @@ import com.mgz.afp.base.StructuredFieldErrornouslyBuilt;
 import com.mgz.afp.enums.AFPUnitBase;
 import com.mgz.afp.enums.SFTypeID;
 import com.mgz.afp.modca.MDD_MediumDescriptor;
+import com.mgz.afp.modca.MMC_MediumModificationControl;
+import com.mgz.afp.modca.MMC_MediumModificationControl.MMC_KeyWord.MMC_KeyWordID;
 import com.mgz.afp.parser.AFPParser;
 import com.mgz.afp.parser.AFPParserConfiguration;
 
@@ -38,9 +40,11 @@ import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * Reads one AFP file with Alpheus and writes the result as JSON on standard
@@ -57,7 +61,7 @@ public final class AdapterMain {
   public static final String CONTRACT_VERSION = "1.0.0";
 
   /** The adapter's own version. */
-  public static final String ADAPTER_VERSION = "1.0.0";
+  public static final String ADAPTER_VERSION = "2.0.0";
 
   /** The Alpheus commit this adapter was compiled against. */
   public static final String ALPHEUS_COMMIT = "b2261a78c2254c32ab136c66199a9f86471d79f1";
@@ -152,7 +156,7 @@ public final class AdapterMain {
     int currentPage = -1;
     boolean pageOpen = false;
     MessageDigest fieldDigest = MessageDigest.getInstance("SHA-256");
-    Map<String, MapRecord> openMaps = new LinkedHashMap<>();
+    Deque<MapRecord> openMaps = new ArrayDeque<>();
     String currentFormMap = null;
 
     AFPParser parser = new AFPParser(config);
@@ -199,17 +203,29 @@ public final class AdapterMain {
             case EFM_EndFormMap -> currentFormMap = null;
             case BMM_BeginMediumMap -> {
               MapRecord record = new MapRecord(name, offset, currentFormMap);
-              openMaps.put(key(name, offset), record);
+              openMaps.push(record);
               mediumMaps.add(record);
             }
+            case EMM_EndMediumMap -> { if (!openMaps.isEmpty()) openMaps.pop(); }
             case MDD_MediumDescriptor -> {
               MDD_MediumDescriptor mdd = (MDD_MediumDescriptor) sf;
-              MapRecord record = lastMap(openMaps, mediumMaps);
+              MapRecord record = openMaps.peek();
               if (record != null) {
                 record.widthMm = toMillimetres(mdd.getxMediumExtent(),
                     mdd.getxUnitBase(), mdd.getxUnitsPerUnitBase());
                 record.heightMm = toMillimetres(mdd.getyMediumExtent(),
                     mdd.getyUnitBase(), mdd.getyUnitsPerUnitBase());
+              }
+            }
+            case MMC_MediumModificationControl -> {
+              var mmc = (MMC_MediumModificationControl) sf;
+              var current = openMaps.peek();
+              if (current != null && mmc.getKeywords() != null) {
+                for (var keyword : mmc.getKeywords()) {
+                  if (keyword.keywordID() == MMC_KeyWordID.DuplexControl) {
+                    current.duplexControls.add((int) keyword.parameter() & 0xff);
+                  }
+                }
               }
             }
             case IMM_InvokeMediumMap -> invokes.add(
@@ -244,18 +260,6 @@ public final class AdapterMain {
       while ((count = input.read(buffer)) >= 0) digest.update(buffer, 0, count);
     }
     return HexFormat.of().formatHex(digest.digest());
-  }
-
-  private static MapRecord lastMap(Map<String, MapRecord> openMaps, List<MapRecord> all) {
-    MapRecord last = null;
-    for (MapRecord record : all) {
-      last = record;
-    }
-    return last;
-  }
-
-  private static String key(String name, long offset) {
-    return name + "@" + offset;
   }
 
   private static String nameOf(StructuredField sf) {
@@ -332,7 +336,7 @@ public final class AdapterMain {
           .append(",\"form_map\":").append(quote(map.formMap))
           .append(",\"width_mm\":").append(number(map.widthMm))
           .append(",\"height_mm\":").append(number(map.heightMm))
-          .append(",\"media_type\":null,\"media_destination\":null,\"duplex\":null}");
+          .append(",\"media_type\":null,\"media_destination\":null,\"duplex\":").append(quote(map.duplex())).append('}');
     }
     sb.append("],");
 
@@ -418,6 +422,19 @@ public final class AdapterMain {
     final String formMap;
     Double widthMm;
     Double heightMm;
+    final Set<Integer> duplexControls = new HashSet<>();
+
+    String duplex() {
+      if (duplexControls.isEmpty()) return null;
+      if (duplexControls.size() != 1) return "conflict";
+      int value = duplexControls.iterator().next();
+      return switch (value) {
+        case 1 -> "simplex";
+        case 2 -> "duplex-long-edge";
+        case 3 -> "duplex-short-edge";
+        default -> String.format("unknown-0x%02X", value);
+      };
+    }
 
     MapRecord(String name, long offset, String formMap) {
       this.name = name == null ? "" : name;

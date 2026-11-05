@@ -87,6 +87,8 @@
     <button class="tab" data-tab="document-index">Document Index</button>
     <button class="tab" data-tab="preflight">Media Preflight</button>
     <button class="tab" data-tab="resources">Resources</button>
+    <button class="tab" data-tab="engineering">Engineering</button>
+    <button class="tab" data-tab="batch">Batch</button>
     <button class="tab" data-tab="report">Production Report</button>
     <button class="tab" data-tab="settings">Settings</button>
     <button type="button" class="panel-toggle details-toggle" id="toggle-details" aria-controls="details-panel" aria-expanded="true">Page details</button>
@@ -141,7 +143,7 @@
       <div class="panel-head">
         <h2>Document index</h2>
         <label for="index-kind">Show</label>
-        <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="text_runs">Positioned text (current page)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="warnings">Warnings</option></select>
+        <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="text_runs">Positioned text (current page)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="mailpieces">Mailpiece candidates (customer rule)</option><option value="warnings">Warnings</option></select>
         <label for="index-codepage">Unverified preview</label>
         <select id="index-codepage"><option value="">Raw only</option><option value="cp037">EBCDIC 037</option><option value="cp500">EBCDIC 500</option></select>
         <input id="index-query" type="search" aria-label="Search TLE preview" placeholder="Search preview text">
@@ -169,6 +171,45 @@
       <div class="table-wrap" id="resources-table"></div>
     </section>
 
+    <section class="panel main-panel" data-panel="engineering" hidden>
+      <div class="panel-head"><h2>AFP engineering</h2><span class="panel-note">UAT · Outputs require validation before production</span></div>
+      <div class="settings">
+        <p>Keep the original as evidence. Write a separate byte-identical copy, apply constrained edits, or export a raster preview. Unknown fields remain untouched. PDF, PNG and TIFF exports have preview fidelity.</p>
+        <form id="engineering-form" class="engineering-form">
+          <label for="engineering-operation">Operation</label>
+          <select id="engineering-operation"><option value="copy">Byte-identical AFP copy</option><option value="edit">Edit IMM / same-length raw TLE</option><option value="extract">Extract one complete document</option><option value="merge">Merge self-contained documents</option><option value="png">PNG preview (one page)</option><option value="pdf">Raster PDF preview</option><option value="tiff">TIFF preview</option></select>
+          <label for="engineering-path">New output file</label>
+          <div class="path-row"><input id="engineering-path" required placeholder="Full path to a separate output file"><button type="button" id="engineering-browse" hidden>Save as…</button></div>
+          <label for="engineering-pages">Preview pages</label>
+          <input id="engineering-pages" placeholder="Current page, or 1,2,3 (maximum 20)">
+          <label for="engineering-document">Document number to extract (one-based, from Document Index)</label>
+          <input id="engineering-document" type="number" min="1" value="1">
+          <label for="engineering-merge">Additional merge inputs (one permitted full path per line, maximum 19)</label>
+          <textarea id="engineering-merge" rows="3" spellcheck="false"></textarea>
+          <label for="engineering-patches">Edit instructions (JSON array; original structured field offsets)</label>
+          <textarea id="engineering-patches" class="mono" rows="6" spellcheck="false" aria-describedby="engineering-help">[]</textarea>
+          <p class="panel-note" id="engineering-help">IMM example: [{"offset":123,"medium_map":"MAP02"}]. Only known map names are allowed. Raw TLE edits preserve byte length and encoding bytes. Merge/extract supports complete standard-AFP document brackets with proven closure in the supported subset; inherited print-file state, resource-bearing jobs and name collisions are refused.</p>
+          <div class="viewer-tools"><button type="submit" class="primary" id="engineering-run">Generate separate output</button><button type="button" id="engineering-cancel" disabled>Cancel task</button></div>
+        </form>
+        <p id="engineering-status" role="status" aria-live="polite">Ready.</p>
+        <pre id="engineering-result" class="engineering-result" aria-label="Output verification and difference report"></pre>
+      </div>
+    </section>
+
+    <section class="panel main-panel" data-panel="batch" hidden>
+      <div class="panel-head"><h2>Batch media preflight</h2><span class="panel-note">Sequential files · bounded workers · no pre-rendering</span></div>
+      <div class="settings">
+        <form id="batch-form" class="engineering-form">
+          <label for="batch-paths">AFP inputs (one permitted full path per line, maximum 20)</label>
+          <textarea id="batch-paths" rows="8" required spellcheck="false"></textarea>
+          <p>Uses the Printer Profile and input format selected in Open AFP. External FormDefs and independent Java comparison are not applied to batch jobs. Missing information remains unresolved. Actual production quantities remain unknown.</p>
+          <div class="viewer-tools"><button type="submit" id="batch-run" class="primary">Run batch preflight</button><button type="button" id="batch-cancel" disabled>Cancel batch</button></div>
+        </form>
+        <p id="batch-status" role="status" aria-live="polite">Ready.</p>
+        <pre id="batch-result" class="engineering-result" aria-label="Batch preflight results"></pre>
+      </div>
+    </section>
+
     <section class="panel main-panel" data-panel="report" hidden>
       <div class="panel-head">
         <h2>Production report</h2>
@@ -178,6 +219,22 @@
         </div>
       </div>
       <div class="report" id="report-body"></div>
+      <details class="settings"><summary>External production evidence journal and manual sign-off</summary>
+        <p>Entries persist locally against the full AFP SHA-256. They are operator-reported external evidence, not independently verified printer results. Printing means net good sheets accepted; rejects/reprints are recorded separately. Actual media remains unknown. The local hash chain is not tamper-proof and operator names are not authenticated identities.</p>
+        <form id="journal-form" class="engineering-form">
+          <label for="journal-stage">Stage</label><select id="journal-stage"><option value="expected">Expected quantity (external job settings)</option><option value="printing">Printing — net good sheets</option><option value="rejects">Rejected sheets</option><option value="reprints">Reprinted sheets</option><option value="enveloping">Enveloped mailpieces</option><option value="dispatch">Dispatched mailpieces</option><option value="reconciliation">External reconciliation reference</option><option value="signoff">Manual release sign-off</option></select>
+          <label for="journal-unit">Quantity unit</label><select id="journal-unit"><option value="sheets">Sheets</option><option value="mailpieces">Mailpieces</option><option value="pages">AFP / RIP pages</option><option value="unknown">Not a quantity (reconciliation / sign-off)</option></select>
+          <label for="journal-value">Reported value</label><input id="journal-value" type="number" min="0" step="1">
+          <label for="journal-source">External evidence source</label><input id="journal-source" required maxlength="512">
+          <label for="journal-reference">Evidence reference</label><input id="journal-reference" required maxlength="512">
+          <label for="journal-operator">Recorded by (operator declaration)</label><input id="journal-operator" required maxlength="512">
+          <label for="journal-note">Note</label><textarea id="journal-note" rows="3" maxlength="2000"></textarea>
+          <label><input id="journal-confirm" type="checkbox"> I have reviewed the external evidence and intend to record this manual release sign-off.</label>
+          <button type="submit" id="journal-save" class="primary">Append evidence / sign-off record</button>
+        </form>
+        <p id="journal-status" role="status" aria-live="polite"></p>
+        <pre id="journal-result" class="engineering-result" aria-label="Production evidence history"></pre>
+      </details>
     </section>
 
     <section class="panel main-panel" data-panel="settings" hidden>
@@ -197,10 +254,10 @@
   </main>
 
   <dialog id="overwrite-dialog" aria-labelledby="overwrite-title">
-    <h2 id="overwrite-title">Replace existing report?</h2>
-    <p>The selected report already exists. Replacing it cannot be undone.</p>
+    <h2 id="overwrite-title">Replace existing output?</h2>
+    <p>The selected output already exists. Replacing it cannot be undone.</p>
     <p id="overwrite-path" class="overwrite-path"></p>
-    <div class="dialog-actions"><button type="button" id="overwrite-cancel">Cancel</button><button type="button" class="primary" id="overwrite-confirm">Replace report</button></div>
+    <div class="dialog-actions"><button type="button" id="overwrite-cancel">Cancel</button><button type="button" class="primary" id="overwrite-confirm">Replace output</button></div>
   </dialog>
 
   <footer class="statusbar">

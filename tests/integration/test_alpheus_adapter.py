@@ -60,9 +60,27 @@ def test_the_adapter_agrees_with_the_local_parser(tmp_path):
     analysis = analyse_media(index, path)
 
     assert result.complete is True
+    assert result.contract_version == "2.0.0"
+    assert len(result.field_index) == index.field_count * 4
     assert result.page_count == index.page_count
     assert compare_with_local(result, index.page_count, sorted(analysis.medium_maps)) == []
     assert compare_with_local(result, index.page_count, sorted(analysis.medium_maps), index=index, analysis=analysis) == []
+
+
+@requires_jar
+def test_explicit_duplex_is_independently_compared(tmp_path):
+    from afpstudio.testing import synthetic
+    path = tmp_path / "duplex.afp"
+    path.write_bytes(synthetic.duplex_document(2))
+    result = AlpheusAdapter(jar=JAR, java_executable=JAVA or "java").parse(path)
+    index = build_index(path)
+    analysis = analyse_media(index, path)
+    assert result.medium_maps[0].duplex == "duplex-long-edge"
+    assert compare_with_local(result, 2, ["MAPDUP"], index=index, analysis=analysis) == []
+    result.medium_maps[0].duplex = "simplex"
+    differences = compare_with_local(result, 2, ["MAPDUP"], index=index, analysis=analysis)
+    assert differences[0]["kind"] == "duplex"
+    assert differences[0]["offset"] == analysis.medium_maps["MAPDUP"].offset
 
 
 @requires_jar

@@ -82,6 +82,7 @@ class ControlStage:
     )
     evidence: list[Evidence] = field(default_factory=list)
     note: str = ""
+    unit: str = "unknown"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -91,6 +92,7 @@ class ControlStage:
             "quantity": self.quantity.as_dict(),
             "evidence": [e.as_dict() for e in self.evidence],
             "note": self.note,
+            "unit": self.unit,
         }
 
 
@@ -117,6 +119,7 @@ class ControlReport:
         stage = self.stages["afp_input"]
         stage.quantity = quantity
         stage.status = COMPLETE
+        stage.unit = "pages"
         stage.evidence.append(
             Evidence(
                 source="AFP Production Studio",
@@ -134,10 +137,14 @@ class ControlReport:
         reference: str,
         note: str = "",
         status: str = COMPLETE,
+        unit: str = "unknown",
     ) -> ControlStage:
         """Attach a production figure from an external system."""
         stage = self.stage(key)
         stage.status = status
+        if unit not in ("pages", "sheets", "mailpieces", "unknown"):
+            raise ValueError("Unsupported production quantity unit.")
+        stage.unit = unit
         stage.quantity = Quantity(
             value,
             "external",
@@ -172,6 +179,7 @@ class ControlReport:
                     "basis": stage.quantity.basis,
                     "note": stage.quantity.note,
                     "evidence_count": len(stage.evidence),
+                    "unit": stage.unit,
                 }
             )
         return rows
@@ -186,6 +194,8 @@ class ControlReport:
                 continue
             stage = self.stages[key]
             value = stage.quantity.value
+            if stage.unit == "unknown" or stage.unit != input_stage.unit:
+                continue
             if value is None or baseline is None:
                 continue
             if value != baseline:

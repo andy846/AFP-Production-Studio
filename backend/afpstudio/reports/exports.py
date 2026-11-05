@@ -171,6 +171,7 @@ def _control_rows(report: ControlReport) -> list[list[Any]]:
             "Status",
             "Value",
             "Basis",
+            "Unit",
             "Evidence",
             "Note",
         ],
@@ -182,6 +183,7 @@ def _control_rows(report: ControlReport) -> list[list[Any]]:
                 row["status"],
                 row["value"] if row["value"] is not None else "",
                 row["basis"],
+                row["unit"],
                 row["evidence_count"],
                 row["note"],
             ]
@@ -223,6 +225,7 @@ def export_csv(
     stats: ProductionStatistics,
     pages: Sequence[Any] = (),
     control: ControlReport | None = None,
+    journal: dict | None = None,
 ) -> bytes:
     """Render the report as CSV bytes (UTF-8 with BOM for Excel)."""
     buffer = io.StringIO()
@@ -237,6 +240,10 @@ def export_csv(
         buffer.write("\r\n")
         for row in _control_rows(control):
             writer.writerow([guard_cell(cell) for cell in row])
+    if journal is not None:
+        buffer.write("\r\n")
+        for row in _journal_rows(journal):
+            writer.writerow([guard_cell(cell) for cell in row])
     return b"\xef\xbb\xbf" + buffer.getvalue().encode("utf-8")
 
 
@@ -244,6 +251,7 @@ def export_excel(
     stats: ProductionStatistics,
     pages: Sequence[Any] = (),
     control: ControlReport | None = None,
+    journal: dict | None = None,
 ) -> bytes:
     """Render the report as an Excel workbook."""
     try:
@@ -270,7 +278,21 @@ def export_excel(
         control_sheet = workbook.create_sheet("Control report")
         for row in _control_rows(control):
             control_sheet.append([guard_cell(cell) for cell in row])
+    if journal is not None:
+        journal_sheet = workbook.create_sheet("Production journal")
+        for row in _journal_rows(journal):
+            journal_sheet.append([guard_cell(cell) for cell in row])
 
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def _journal_rows(journal):
+    yield ["Operator-reported external production evidence; identity not authenticated; actual media unknown"]
+    yield ["AFP SHA-256", journal["job_sha256"]]
+    yield ["Sign-off status", journal["signoff_status"]]
+    yield ["Sequence", "Stage", "Unit", "Value", "Source", "Reference", "Operator", "Recorded UTC", "Note", "Event hash"]
+    for event in journal["events"]:
+        yield [event["sequence"], event["stage"], event["unit"], event["value"], event["source"], event["reference"],
+               event["recorded_by"], event["recorded_at"], event.get("note", ""), event["event_hash"]]

@@ -136,6 +136,7 @@ class PrinterProfile:
     rules: list[Rule] = field(default_factory=list)
     schema_version: str = SCHEMA_VERSION
     resource_inventory: list[dict[str, str]] = field(default_factory=list)
+    mailpiece_rule: dict | None = None
 
     def as_dict(self) -> dict[str, Any]:
         data = {
@@ -148,6 +149,8 @@ class PrinterProfile:
         }
         if self.resource_inventory:
             data["resource_inventory"] = [dict(item) for item in self.resource_inventory]
+        if self.mailpiece_rule:
+            data["mailpiece_rule"] = dict(self.mailpiece_rule)
         return data
 
 
@@ -317,6 +320,14 @@ def validate_profile(data: Any) -> PrinterProfile:
     media_maps = _validate_media_maps(data.get("media_maps", {}))
     rules = _validate_rules(data.get("rules", []))
     inventory = _validate_inventory(data.get("resource_inventory", []))
+    mailpiece_rule = data.get("mailpiece_rule")
+    if mailpiece_rule is not None:
+        _require(isinstance(mailpiece_rule, dict) and set(mailpiece_rule) == {"page_group_name", "evidence_ref", "verified_by", "verified_at"}, "Mailpiece rule requires page_group_name and explicit evidence metadata.")
+        _require(all(isinstance(value, str) and value.strip() and len(value) <= 256 for value in mailpiece_rule.values()), "Mailpiece rule values must be bounded non-empty text.")
+        try:
+            date.fromisoformat(mailpiece_rule["verified_at"])
+        except ValueError as exc:
+            raise ProfileError("Mailpiece rule verified_at must be an ISO date.") from exc
 
     return PrinterProfile(
         name=name,
@@ -324,4 +335,5 @@ def validate_profile(data: Any) -> PrinterProfile:
         rules=rules,
         schema_version=version,
         resource_inventory=inventory,
+        mailpiece_rule=dict(mailpiece_rule) if mailpiece_rule else None,
     )

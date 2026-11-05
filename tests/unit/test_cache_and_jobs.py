@@ -164,3 +164,17 @@ def test_cooperative_deadline_fails_and_cleans_up():
     assert wait_for(job) == FAILED
     assert "deadline" in job.error.lower()
     assert cleanup.is_set()
+
+
+def test_cancel_after_atomic_publication_cannot_mislabel_written_output():
+    manager = JobManager(1)
+    published, release = threading.Event(), threading.Event()
+    def work(ctx):
+        ctx.publish(published.set)
+        release.wait(2)
+        return "written"
+    job = manager.submit("export", "publish", work)
+    assert published.wait(2)
+    assert manager.cancel(job.id) is False
+    release.set()
+    assert wait_for(job) == COMPLETED

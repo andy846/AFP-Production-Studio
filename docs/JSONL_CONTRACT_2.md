@@ -22,7 +22,8 @@ results must cover every input byte contiguously, have at least one field
 and no parser errors. Source digest is checked against Studio's source.
 
 Comparison checks every field's offset, length, identifier and bracketed
-page association; page starts and IMM names remain separate diagnostics.
+page association. Page starts, IMM names, medium map offsets, supported
+physical dimensions and explicit MMC duplex values have separate diagnostics.
 At most 1000 differences are retained, then an explicit comparison-limit
 failure is added. Errors and incompleteness fail preflight. Equal supported
 observations do not prove full semantic agreement: resource scope, triplet

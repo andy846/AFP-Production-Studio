@@ -27,6 +27,7 @@ from pathlib import Path
 
 from afpstudio.viewer.index import (
     BDT,
+    EDT,
     BFM,
     BMM,
     BNG,
@@ -95,7 +96,9 @@ ORIENTATIONS = {
 MEDIA_FIELDS = frozenset(
     {
         BDT,
+        EDT,
         BNG,
+        ENG,
         BPG,
         BMM,
         EMM,
@@ -492,6 +495,9 @@ def analyse_media(index: DocumentIndex, path: Path, check_cancelled=None) -> Med
 
             if sf_id == BDT:
                 analysis.documents += 1
+                page_group_stack.clear()
+            elif sf_id == EDT:
+                page_group_stack.clear()
             elif sf_id == BNG:
                 name = index.token_at(i)
                 if name:
@@ -504,7 +510,10 @@ def analyse_media(index: DocumentIndex, path: Path, check_cancelled=None) -> Med
                 if name:
                     analysis.form_maps.append(name)
             elif sf_id == EFM:
-                form_map_stack.pop()
+                if form_map_stack:
+                    form_map_stack.pop()
+                else:
+                    analysis.warnings.append({"code": "UNMATCHED_FORM_MAP_END", "offset": int(index.offsets[i]), "message": "End Form Map has no matching begin."})
                 current_form_map = form_map_stack[-1] if form_map_stack else None
             elif sf_id == BMM:
                 name = index.token_at(i) or ""

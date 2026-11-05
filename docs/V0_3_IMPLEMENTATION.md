@@ -49,13 +49,38 @@ Java tests used a freshly compiled adapter against pinned Alpheus, not a
 mock parser. The suite counts above are a milestone, not claims about later
 edits or production/RIP fidelity.
 
-## Remaining acceptance gates
+## Four-stage UAT scope
 
-Integrated engineering UI, larger-workload benchmark, browser/EXE checks,
-CI, packaging notices and final complete regression results are recorded
-as they run. Full AFP editing/merge/split, conversion, verified mailpiece
-profiles and persisted production evidence require their own bounded
-implementations and tests; none may be advertised solely from a scaffold.
+| Stage | Integrated functionality | Coverage boundary |
+|---|---|---|
+| Parser foundation | Explicit standard/RDW, document/group/raw TLE index, resource observations/inventory, contract 2.0 with original offsets and explicit MMC duplex comparison | No BDW/VBS, bare-SF RDW, line/mixed mode, or full independent resource semantics |
+| Production analysis | Page-local positioned text, evidence-gated mailpiece candidates, document-local IMM state | Preview text/code-page fallback; named groups alone never establish mailpiece boundaries |
+| Engineering | Byte-identical copy, IMM/TLE edits, complete-document extract/merge with provenance | Same-length edits; refuses unproven closure or collisions; no arbitrary rewriting/resource renaming |
+| Output and control | Raster PDF/PNG/TIFF preview, bounded batch preflight, persisted evidence journal, same-unit reconciliation and manual sign-off | No RIP/dispatch feed, identity authentication, tamper-proof journal or production-validated conversion |
+
+Use the [Windows UAT guide](V0_3_OPERATING_GUIDE.md) with approved synthetic
+or non-customer fixtures. The development build is not approval for a
+production job.
+
+## Acceptance evidence
+
+* Studio on portable CPython 3.13.18: **307 passed** with rebuilt optional
+  JDK 21 adapter and actual Edge. Browser smoke included open, positioned
+  text, engineering copy, page jump, narrow layout and no app requests off loopback.
+* Vendored readAFP: **224 passed, 11 skipped, 3 xfailed**. Skips are unavailable
+  upstream sample/corpus cases; expected failures are existing AFP/PDF reference differences.
+* Packaged Windows smoke: native window launched, startup AFP opened 4 pages,
+  SVG and IMM sequence verified, CSV/XLSX/PNG written, original SHA-256 unchanged,
+  Java disabled. Window close stopped the child and bootloader with no residual
+  test extraction folder. Export was checked via the EXE's loopback API.
+  Native Browse/Save As click-through was not completed because the computer-use
+  approval timed out.
+* Clean desktop Python environment: `pip-audit` found no known vulnerabilities;
+  `pip check` found no broken requirements. OSV returned no advisories in the
+  72 Cargo coordinates from the converter wheel SBOM. This does not cover all
+  native OS libraries and is not malware or code-signing attestation.
+* CI tests, dependency audit and build workflow is configured in
+  `.github/workflows/verify.yml`. There is no remote run of this local change yet.
 
 ## Operational limits
 
@@ -69,5 +94,12 @@ implementations and tests; none may be advertised solely from a scaffold.
   decompression allocation inside the upstream renderer.
 * Worker deadlines are cooperative, not an OS-enforced Python sandbox.
   Java additionally has its own heap, wall-clock and output limits.
-* UI searches use POST bodies. Legacy GET search remains for compatibility;
-  deployments using their own access logger must redact query strings.
+* UI searches use POST bodies and the built-in server omits request URL logs.
+  Deployments using their own access logger must redact query strings.
+* The development adapter uses a previously built pinned Alpheus library.
+  Its Gradle wrapper matched pinned upstream Git blob
+  `d3b83982b9b1bccad955349d702be9b884c6e049`. The Gradle 8.5 distribution
+  property lacks a pinned distribution SHA-256. Wrapper execution and full
+  Java SCA are outside this EXE acceptance; no Java jar is bundled.
+* Production acceptance still needs real printer/RIP comparison and operator
+  workflow validation; the UAT EXE is unsigned.

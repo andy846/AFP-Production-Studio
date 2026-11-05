@@ -82,7 +82,9 @@ def resource_dependencies(index: DocumentIndex, path: Path, max_items: int = 100
     evidence = {(item["kind"], item["name"]): item for item in inventory}
     for reference in references:
         key = (reference["kind"], reference["name"])
-        reference["definition_offsets"] = present.get(key, [])
+        offsets = present.get(key, [])
+        reference["definition_offsets"] = offsets[:16]
+        reference["definition_count"] = len(offsets)
         reference["edge_basis"] = reference.get("edge_basis", "font_mapping_declaration_not_proven_use")
         reference["status"] = ("definition_present_scope_unverified" if key in present else "external_unverified")
         if key not in present and key in evidence:

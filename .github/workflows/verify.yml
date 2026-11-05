@@ -1,0 +1,63 @@
+name: Verify Studio
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install -r backend/requirements.txt
+      - if: runner.os == 'Windows'
+        run: python -m pip install pywebview==6.2.1 playwright==1.64.1
+      - if: runner.os == 'Windows'
+        run: python -m playwright install chromium
+      - name: Studio tests
+        env:
+          AFP_STUDIO_REQUIRE_UI: ${{ runner.os == 'Windows' && '1' || '0' }}
+        run: python -m pytest tests -q --junitxml=studio-tests.xml
+      - name: readAFP regressions
+        env:
+          PYTHONPATH: backend/vendor/readafp/src
+        run: python -m pytest backend/vendor/readafp/tests -q --junitxml=readafp-tests.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tests-${{ matrix.os }}
+          path: '*-tests.xml'
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pip-audit==2.10.1
+      - run: python -m pip_audit -r backend/requirements.txt --format json --output dependency-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-audit
+          path: dependency-audit.json
+  windows-build:
+    needs: [tests, audit]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/build_exe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-UAT-build
+          path: dist/AFP-Production-Studio.exe

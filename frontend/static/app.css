@@ -434,6 +434,9 @@ td.num { text-align: right; font-family: var(--mono); }
 .report h3 { font-family: var(--serif); font-size: 16px; margin: 22px 0 8px; }
 
 .settings { flex: 1; overflow: auto; padding: 16px 18px; }
+.engineering-form { display: grid; gap: 10px; max-width: 900px; }
+.engineering-form textarea { width: 100%; min-width: 0; resize: vertical; }
+.settings pre.engineering-result { white-space: pre-wrap; overflow-wrap: anywhere; }
 .settings h3 { font-family: var(--serif); font-size: 16px; margin: 0 0 10px; }
 .settings .card {
   background: var(--bg-raised);

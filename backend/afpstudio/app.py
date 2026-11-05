@@ -7,7 +7,7 @@ Everything it needs is on the machine it runs on.
 
 from __future__ import annotations
 
-from flask import Flask, redirect, render_template, session, url_for
+from flask import Flask, redirect, render_template, session, url_for, request
 
 from .api import bp as api_blueprint
 from .config import CONFIG, Config
@@ -20,6 +20,8 @@ from .security.headers import apply_headers
 from .security.paths import FileGrants
 from .viewer.cache import PageCache
 from .viewer.jobs import JobManager
+from .reports.journal import ProductionJournal
+from .security.access_log import LocalRequestHandler
 
 FRONTEND_DIR = frontend_dir()
 
@@ -41,6 +43,7 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
         MAX_CONTENT_LENGTH=config.max_upload_bytes,
         JSON_SORT_KEYS=False,
         TEMPLATES_AUTO_RELOAD=False,
+        TRUSTED_HOSTS=["127.0.0.1", "localhost", "[::1]"] if config.is_loopback else [config.host],
     )
 
     profiles = ProfileStore(config.profile_dir)
@@ -53,6 +56,7 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
         "documents": DocumentStore(PageCache(config.page_cache_bytes)),
         "jobs": JobManager(config.max_concurrent_jobs, timeout_seconds=config.job_timeout_seconds),
         "profiles": profiles,
+        "journal": ProductionJournal(config.data_dir / "production-journal.sqlite"),
         "alpheus": AlpheusAdapter(
             jar=config.adapter_jar,
             java_executable=config.java_executable,
@@ -63,6 +67,13 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
     }
 
     app.register_blueprint(api_blueprint)
+
+    @app.before_request
+    def _bounded_json():
+        if request.path.startswith("/api/") and request.method in ("POST", "PUT", "PATCH") and request.is_json:
+            request.max_content_length = 2 * 1024 * 1024
+            if not isinstance(request.get_json(silent=True), dict):
+                return {"error": "API request must be a JSON object.", "code": "invalid_request"}, 400
 
     @app.after_request
     def _harden(response):
@@ -128,7 +139,7 @@ def main() -> None:
             "WARNING: the server is not bound to the loopback interface. "
             "Document content will be reachable from the network."
         )
-    app.run(host=config.host, port=config.port, debug=config.debug)
+    app.run(host=config.host, port=config.port, debug=config.debug, request_handler=LocalRequestHandler)
 
 
 if __name__ == "__main__":

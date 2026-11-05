@@ -1,5 +1,27 @@
 # Performance measurements
 
+## v0.3 full-open benchmark: one IMM per page
+
+Measured on Windows build 26300, CPython 3.11.3, synthetic simplex files.
+`python scripts/benchmark_v03.py` starts a fresh process per workload, times
+indexed open including media analysis/preflight, then renders only the last
+page. `tracemalloc` is enabled during timing.
+
+| Framing | Pages / IMM | Bytes | Open s | Last-page render s | Python heap peak MiB | Working-set peak MiB |
+|---|---:|---:|---:|---:|---:|---:|
+| Standard | 1,000 / 1,000 | 59,197 | 0.390 | 0.005 | 1.88 | 32.94 |
+| Standard | 10,000 / 10,000 | 590,197 | 4.009 | 0.055 | 17.76 | 79.79 |
+| Standard | 20,000 / 20,000 | 1,180,197 | 9.149 | 0.108 | 35.51 | 132.24 |
+| RDW | 1,000 / 1,000 | 75,241 | 0.420 | 0.005 | 1.89 | 33.01 |
+| RDW | 10,000 / 10,000 | 750,241 | 4.269 | 0.052 | 17.76 | 79.80 |
+| RDW | 20,000 / 20,000 | 1,500,241 | 10.050 | 0.147 | 35.51 | 131.76 |
+
+Every case indexed the expected page/IMM counts, produced the requested
+timeline and rendered zero pages during open. Working-set peak includes
+the process and preparation; Python heap peak starts after file creation.
+These measurements cover small synthetic fields, not large IOCA pages,
+network shares, Java comparisons or RIP throughput.
+
 These numbers are from the machine that built the application, using the
 synthetic builder in `backend/afpstudio/testing/synthetic.py`. They are
 a snapshot, not a guarantee: a different machine, disk or AFP producer

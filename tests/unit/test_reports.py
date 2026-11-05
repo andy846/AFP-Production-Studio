@@ -146,7 +146,7 @@ def test_control_report_reports_differences():
     report.set_afp_input(
         type("Q", (), {"value": 100, "basis": PARSED, "note": ""})()
     )
-    report.record("printing", 98, "RIP report", "RIP-2026-001")
+    report.record("printing", 98, "RIP report", "RIP-2026-001", unit="pages")
     differences = report.discrepancies()
     assert differences
     assert differences[0]["difference"] == -2

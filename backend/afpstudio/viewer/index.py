@@ -234,7 +234,7 @@ def decode_ebcdic_name(raw: bytes) -> str:
     return "".join(ch for ch in text if ch.isprintable()).strip()
 
 
-def build_index(path: Path, progress=None, input_format="standard") -> DocumentIndex:
+def build_index(path: Path, progress=None, input_format="standard", *, max_fields=2_000_000, max_pages=100_000) -> DocumentIndex:
     """Scan ``path`` once and return its :class:`DocumentIndex`.
 
     ``progress`` is an optional callable taking a percentage; the
@@ -245,6 +245,10 @@ def build_index(path: Path, progress=None, input_format="standard") -> DocumentI
         raise IndexingError("Unsupported input format.")
     size = path.stat().st_size
     index = DocumentIndex(path=path, file_size=size, input_format=input_format)
+    if not size:
+        index.truncated = True
+        index.warnings.append({"code": "EMPTY_INPUT", "offset": 0, "message": "Input contains no structured fields."})
+        return index
 
     with path.open("rb") as handle:
         with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mm:
@@ -256,6 +260,10 @@ def build_index(path: Path, progress=None, input_format="standard") -> DocumentI
             last_report = 0.0
 
             while pos < size:
+                if index.field_count >= max_fields:
+                    index.warnings.append({"code": "FIELD_LIMIT", "offset": pos, "message": "Structured field limit reached; analysis is incomplete."})
+                    index.truncated = True
+                    break
                 record_end = None
                 if input_format == "rdw":
                     try:
@@ -287,7 +295,7 @@ def build_index(path: Path, progress=None, input_format="standard") -> DocumentI
                     index.truncated = True
                     break
 
-                if pos + HEADER_BYTES > size:
+                if pos + HEADER_BYTES > (record_end if record_end is not None else size):
                     index.warnings.append(
                         {
                             "code": "SF_TRUNCATED",
@@ -348,6 +356,10 @@ def build_index(path: Path, progress=None, input_format="standard") -> DocumentI
 
                 # Page structure.
                 if sf_id == BPG:
+                    if index.page_count >= max_pages:
+                        index.warnings.append({"code": "PAGE_LIMIT", "offset": pos, "message": "Indexed page limit reached; analysis is incomplete."})
+                        index.truncated = True
+                        break
                     if index.page_ends:
                         index.page_field_ends[-1] = len(index.offsets)
                     page += 1

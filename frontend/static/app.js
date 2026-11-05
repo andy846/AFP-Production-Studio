@@ -372,9 +372,13 @@
       });
       if (requestId !== documentIndexRequest || !state.document || state.document.document_id !== documentId) return;
       documentIndexTotal = result.total;
-      $("document-index-note").textContent = "Partial coverage: " + (kind === "text_runs" ? "page " + state.page + " positioned preview text; coordinates use page logical units. Offset identifies the PTX field. Fallback " + codec + " is operator-selected. " : codec ? "operator-selected " + codec + " preview is unverified. " : "raw TLE bytes; text not decoded. ") +
+      const basis = kind === "text_runs" ? "Page " + state.page + " positioned preview text; coordinates use page logical units. Offset identifies the PTX field. Fallback " + codec + " is operator-selected. " :
+        kind === "mailpieces" ? "Candidate boundaries require an operator-attested customer rule. Actual mailpieces are unknown. " :
+        kind === "tags" ? (codec ? "Operator-selected " + codec + " preview is unverified. " : "Raw TLE bytes; text not decoded. ") : "Parsed document and group structure. ";
+      $("document-index-note").textContent = basis +
         (result.complete ? "Scanned fields without index warnings." : "Incomplete or limited index.") +
-        " " + (result.warnings || 0) + " warning(s); " + result.total + " items.";
+        " " + (result.warnings || 0) + " warning(s); " + result.total + " items." +
+        ((result.warning_details || []).filter((item) => typeof item === "string").map((item) => " " + item).join(""));
       const list = el("table");
       const head = el("thead");
       const header = el("tr");
@@ -976,9 +980,11 @@
 
   async function loadReport() {
     if (!state.document) return;
-    const url = "/api/documents/" + state.document.document_id + "/report";
+    const documentId = state.document.document_id;
+    const url = "/api/documents/" + documentId + "/report";
     try {
-      state.report = await api(url);
+      const result = await api(url);
+      if (state.document && state.document.document_id === documentId) state.report = result;
     } catch (err) {
       setStatus(err.message);
     }
@@ -1083,6 +1089,10 @@
     });
     controlTable.appendChild(ctbody);
     box.appendChild(controlTable);
+    const journal = state.report.production_journal;
+    $("journal-result").textContent = journal ? JSON.stringify(journal, null, 2) : "No journal data.";
+    $("journal-status").textContent = journal ? "Sign-off: " + journal.signoff_status + ". " +
+      (journal.release_gate.eligible ? "Reported quantities reconcile; eligible to record an operator sign-off after review." : journal.release_gate.reasons.join(" ")) : "";
   }
 
   /* ------------------------------------------------------------------ */
@@ -1283,6 +1293,134 @@
   /* boot                                                                */
   /* ------------------------------------------------------------------ */
 
+  function initEngineering() {
+    let jobId = null;
+    whenNativeReady(() => { $("engineering-browse").hidden = false; });
+    $("engineering-browse").addEventListener("click", async () => {
+      const operation = $("engineering-operation").value;
+      const suffix = ["copy", "edit", "extract", "merge"].includes(operation) ? "afp" : operation;
+      const path = await pickSavePath("output." + suffix, suffix);
+      if (path) $("engineering-path").value = path;
+    });
+    $("engineering-cancel").addEventListener("click", async () => {
+      if (!jobId) return;
+      try { await api("/api/jobs/" + jobId + "/cancel", { method: "POST" }); }
+      catch (err) { $("engineering-status").textContent = err.message; }
+    });
+    $("engineering-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!state.document || jobId) { setStatus("Open an AFP document first."); return; }
+      const documentId = state.document.document_id;
+      const operation = $("engineering-operation").value;
+      const rawPages = $("engineering-pages").value.trim();
+      const pages = rawPages ? rawPages.split(",").map((value) => Number(value.trim()) - 1) : [state.page - 1];
+      let patches;
+      try { patches = JSON.parse($("engineering-patches").value); }
+      catch (err) { $("engineering-status").textContent = "Edit instructions must be valid JSON."; return; }
+      const body = { operation: operation, path: $("engineering-path").value.trim(), pages: pages, patches: patches,
+        document_number: Number($("engineering-document").value),
+        merge_paths: $("engineering-merge").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) };
+      const endpoint = "/api/documents/" + documentId + "/engineering";
+      $("engineering-run").disabled = true;
+      $("engineering-result").textContent = "";
+      try {
+        let result;
+        try { result = await api(endpoint, { method: "POST", body: body }); }
+        catch (err) {
+          if (err.code !== "overwrite_required") throw err;
+          const accepted = await new Promise((resolve) => {
+            const dialog = $("overwrite-dialog");
+            const suffix = ["copy", "edit", "extract", "merge"].includes(operation) ? "afp" : operation;
+            $("overwrite-path").textContent = body.path.replace(/\.[^./\\]+$/, "") + "." + suffix;
+            const finish = (value) => { dialog.close(); resolve(value); };
+            $("overwrite-cancel").onclick = () => finish(false);
+            $("overwrite-confirm").onclick = () => finish(true);
+            dialog.oncancel = (ev) => { ev.preventDefault(); finish(false); };
+            dialog.showModal();
+          });
+          if (!accepted) { $("engineering-status").textContent = "Cancelled before generation."; return; }
+          body.overwrite = true;
+          result = await api(endpoint, { method: "POST", body: body });
+        }
+        jobId = result.job.id;
+        $("engineering-cancel").disabled = false;
+        while (jobId) {
+          const job = await api("/api/jobs/" + jobId);
+          $("engineering-status").textContent = job.state + " — " + (job.error || job.message || "");
+          if (["completed", "failed", "cancelled"].includes(job.state)) {
+            if (job.result) $("engineering-result").textContent = JSON.stringify(job.result, null, 2);
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      } catch (err) { $("engineering-status").textContent = err.message; }
+      finally { jobId = null; $("engineering-run").disabled = false; $("engineering-cancel").disabled = true; }
+    });
+  }
+
+  function initBatch() {
+    let jobId = null;
+    $("batch-cancel").addEventListener("click", async () => {
+      if (!jobId) return;
+      try { await api("/api/jobs/" + jobId + "/cancel", { method: "POST" }); }
+      catch (err) { $("batch-status").textContent = err.message; }
+    });
+    $("batch-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (jobId) return;
+      $("batch-run").disabled = true;
+      $("batch-result").textContent = "";
+      try {
+        const result = await api("/api/batch/preflight", { method: "POST", body: {
+          paths: $("batch-paths").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+          profile: $("profile-select").value || null, input_format: $("input-format").value
+        } });
+        jobId = result.job.id;
+        $("batch-cancel").disabled = false;
+        while (jobId) {
+          const job = await api("/api/jobs/" + jobId);
+          $("batch-status").textContent = job.state + " — " + Math.round(job.progress * 100) + "% — " + (job.error || job.message || "");
+          if (["completed", "failed", "cancelled"].includes(job.state)) {
+            if (job.result) $("batch-result").textContent = JSON.stringify(job.result, null, 2);
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      } catch (err) { $("batch-status").textContent = err.message; }
+      finally { jobId = null; $("batch-run").disabled = false; $("batch-cancel").disabled = true; }
+    });
+  }
+
+  function initJournal() {
+    $("journal-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!state.document) { setStatus("Open an AFP document first."); return; }
+      const documentId = state.document.document_id;
+      const stage = $("journal-stage").value;
+      const signoff = stage === "signoff";
+      if (signoff && !$("journal-confirm").checked) {
+        $("journal-status").textContent = "Review the evidence and confirm your intent before recording sign-off.";
+        return;
+      }
+      if (!signoff && stage !== "reconciliation" && !$("journal-value").value.trim()) {
+        $("journal-status").textContent = "Enter an evidenced quantity; blank is unknown, not zero.";
+        return;
+      }
+      const body = { action: signoff ? "signoff" : "evidence", stage: stage,
+        unit: signoff || stage === "reconciliation" ? "unknown" : $("journal-unit").value,
+        value: signoff || stage === "reconciliation" ? null : Number($("journal-value").value),
+        source: $("journal-source").value, reference: $("journal-reference").value,
+        recorded_by: $("journal-operator").value, note: $("journal-note").value };
+      $("journal-save").disabled = true;
+      try {
+        await api("/api/documents/" + documentId + "/production-journal", { method: "POST", body: body });
+        if (state.document && state.document.document_id === documentId) { await loadReport(); renderReport(); }
+        $("journal-confirm").checked = false;
+      } catch (err) { $("journal-status").textContent = err.message; }
+      finally { $("journal-save").disabled = false; }
+    });
+  }
+
   async function loadProfiles() {
     try {
       const payload = await api("/api/profiles");
@@ -1304,6 +1442,9 @@
     initViewer();
     initSearch();
     initExport();
+    initEngineering();
+    initBatch();
+    initJournal();
     $("index-kind").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
     $("index-codepage").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
     let indexSearchTimer;

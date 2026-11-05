@@ -312,6 +312,14 @@ def test_unexpected_media_change_is_a_warning(indexed, permissive_profile):
     assert finding.page == 3
 
 
+def test_document_boundary_does_not_reassign_previous_page_or_carry_imm(indexed):
+    second = synthetic.bdt() + synthetic.bpg() + synthetic.epg() + synthetic.edt()
+    path, index, analysis = indexed("two-documents.afp", synthetic.simplex_document(2) + second)
+    result = run_preflight(path, index, analysis)
+    assert [p.document_id for p in result.pages] == ["D1", "D1", "D2"]
+    assert [p.medium_map for p in result.pages] == ["MAP01", "MAP01", None]
+
+
 @pytest.mark.parametrize("pages", [1, 3, 10])
 def test_page_count_is_stable(indexed, permissive_profile, pages):
     path, index, analysis = indexed(

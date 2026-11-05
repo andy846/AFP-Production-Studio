@@ -54,6 +54,7 @@ class Job:
     message: str = ""
     result: Any = None
     error: str = ""
+    committed: bool = False
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -77,21 +78,31 @@ class Job:
 class JobContext:
     """Handed to a job so it can report progress and check for cancellation."""
 
-    def __init__(self, job: Job, cancel: threading.Event, timeout_seconds=900) -> None:
+    def __init__(self, job: Job, cancel: threading.Event, timeout_seconds=900, commit_lock=None) -> None:
         self.job = job
         self._cancel = cancel
         self._cancel_cleanup = None
         self._deadline = time.monotonic() + timeout_seconds
+        self._commit_lock = commit_lock or threading.Lock()
+
+    def publish(self, action):
+        """Serialize the final atomic publication with cancellation requests."""
+        with self._commit_lock:
+            self.check_cancelled()
+            action()
+            self.job.committed = True
 
     def on_cancel(self, callback: Callable[[], None]) -> None:
         self._cancel_cleanup = callback
 
     @property
     def cancelled(self) -> bool:
-        return self._cancel.is_set()
+        return self._cancel.is_set() and not self.job.committed
 
     def check_cancelled(self) -> None:
         """Raise :class:`JobCancelled` when the operator asked to stop."""
+        if self.job.committed:
+            return
         if self._cancel.is_set():
             raise JobCancelled()
         if time.monotonic() >= self._deadline:
@@ -167,7 +178,7 @@ class JobManager:
                 self._finish(job_id, CANCELLED, "Cancelled before it started.")
                 return
             job.state = RUNNING
-            context = JobContext(job, cancel or threading.Event(), self.timeout_seconds)
+            context = JobContext(job, cancel or threading.Event(), self.timeout_seconds, self._lock)
             result = work(context)
             context.check_cancelled()
             with self._lock:
@@ -224,7 +235,7 @@ class JobManager:
         with self._lock:
             job = self._jobs.get(job_id)
             cancel = self._cancel.get(job_id)
-            if job is None or cancel is None or job.state in TERMINAL_STATES:
+            if job is None or cancel is None or job.state in TERMINAL_STATES or job.committed:
                 return False
             cancel.set()
             job.message = "Cancellation requested."

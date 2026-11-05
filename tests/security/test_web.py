@@ -2,6 +2,16 @@
 
 from __future__ import annotations
 
+
+def test_untrusted_host_cannot_rebind_to_local_studio(app_client):
+    response = app_client.get("/", headers={"Host": "untrusted.example"})
+    assert response.status_code == 400
+
+
+def test_json_array_is_rejected_as_api_input(app_client):
+    response = app_client.post("/api/documents/open", json=["not an object"])
+    assert response.status_code == 400
+
 import re
 
 from afpstudio.security.csrf import HEADER_NAME

@@ -261,13 +261,15 @@ class PreflightResult:
         }
 
 
-def _digest(path: Path) -> str:
-    """A short content digest, used to tell two jobs apart in a report."""
+def _digest(path: Path, check_cancelled=None) -> str:
+    """Full source SHA-256 for reports and evidence identity."""
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            if check_cancelled:
+                check_cancelled()
             hasher.update(chunk)
-    return hasher.hexdigest()[:16]
+    return hasher.hexdigest()
 
 
 def _document_map(index: DocumentIndex) -> list[str]:
@@ -284,7 +286,7 @@ def _document_map(index: DocumentIndex) -> list[str]:
         # A page belongs to the last document that started at or before it.
         while (
             ordinal + 1 < len(boundaries)
-            and index.pages[boundaries[ordinal + 1]] <= page
+            and boundaries[ordinal + 1] <= index.page_field_starts[page]
         ):
             ordinal += 1
         result.append(f"D{ordinal + 1}")
@@ -433,8 +435,17 @@ def _effective_invokes(
     effective: list[dict[str, Any]] = []
     cursor = 0
     carried = None
+    document_offsets = [int(index.offsets[i]) for i, sf_id in enumerate(index.sf_ids) if sf_id == BDT]
+    document_cursor = -1
+    boundary = 0
     for page_index in range(len(page_starts)):
         start = page_starts[page_index]
+        previous_boundary = boundary
+        while document_cursor + 1 < len(document_offsets) and document_offsets[document_cursor + 1] <= start:
+            document_cursor += 1
+            boundary = document_offsets[document_cursor]
+        if boundary != previous_boundary:
+            carried = None
         end = (
             index.page_ends[page_index]
             if page_index < len(index.page_ends)
@@ -442,7 +453,8 @@ def _effective_invokes(
         )
         inside = None
         while cursor < len(invokes) and invokes[cursor].offset < start:
-            carried = invokes[cursor]
+            if invokes[cursor].offset >= boundary:
+                carried = invokes[cursor]
             cursor += 1
         while cursor < len(invokes) and end is not None and invokes[cursor].offset < end:
             inside = invokes[cursor]
@@ -476,6 +488,7 @@ def run_preflight(
     implicit_pages: int = 0,
     parser: str = "studio",
     check_cancelled=None,
+    expected_source_digest=None,
 ) -> PreflightResult:
     """Run the full media preflight over an indexed document."""
     path = Path(path)
@@ -484,7 +497,7 @@ def run_preflight(
         filename=path.name,
         file_path=str(path),
         file_size=path.stat().st_size if path.exists() else 0,
-        file_digest=_digest(path) if path.exists() else "",
+        file_digest=_digest(path, check_cancelled) if path.exists() else "",
         profile_name=profile.name if profile else None,
         parser=parser,
         implicit_pages=implicit_pages,
@@ -494,6 +507,9 @@ def run_preflight(
     result.form_maps = list(analysis.form_maps)
     result.medium_maps = sorted(analysis.medium_maps)
     result.external_form_defs = sorted(external_definitions)
+    if expected_source_digest and result.file_digest != expected_source_digest:
+        incomplete = True
+        parser_failures = list(parser_failures or ()) + [{"code": "source_digest_mismatch", "message": "Independent parser and Studio did not analyse identical source bytes."}]
 
     document_ids = _document_map(index)
     effective = _effective_invokes(index, analysis)

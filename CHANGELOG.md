@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0-dev — Unified Engine UAT
+
+- Standard and explicit unspanned RDW opening with original offsets.
+- Document/group/TLE index, positioned text, and rule-based mailpiece candidates.
+- Resource dependency observations and operator-attested inventory.
+- Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
+  medium dimensions and explicit duplex comparison.
+- Separate, verified byte-preserving copy, constrained edits and complete-document
+  merge/extract; local raster PDF, PNG and TIFF preview.
+- Bounded batch preflight and persistent production evidence journal with
+  explicit units, reconciliation and manual sign-off.
+- Worker/deadline bounds, trusted local host, private search, validated and
+  atomic output, maintained dependencies and verification workflow.
+- See [acceptance and limits](docs/V0_3_IMPLEMENTATION.md) and
+  [Windows operations](docs/V0_3_OPERATING_GUIDE.md).
+
 All notable changes to this project are recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [semantic versioning](https://semver.org/).

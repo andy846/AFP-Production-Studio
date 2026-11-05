@@ -132,11 +132,9 @@ with the vendored source.
   does **not** support that claim, and the product must not be
   described that way. It is GPL-3.0-or-later because it links a
   GPL-3.0 library.
-* **Dropping Alpheus** — if the adapter is removed and the readAFP
-  based application is shipped on its own, the remaining product is MIT
-  licensed plus the Studio's own terms. The Alpheus adapter is
-  therefore kept in its own directory and behind its own interface so
-  that this remains possible.
+* **Dropping Alpheus** — the adapter can be omitted. Doing so does not
+  change Studio's own GPL-3.0-or-later terms or the vendored MIT notices.
+  A different distribution model needs its own rights and licence review.
 
 ## 6. Attribution
 
@@ -145,3 +143,21 @@ with the vendored source.
 * Alpheus AFP Parser — Copyright 2015 Rudolf Fiala, continued by Olivier
   Chatelain, GPL-3.0-or-later. See the `LICENSE` file in the Alpheus
   checkout and the headers in every source file.
+
+## v0.3 preview and dependency notices
+
+* `resvg-py` 0.5.0 uses the MIT licence. Its wheel carries `LICENSE` and
+  a CycloneDX SBOM covering embedded Rust components. The spec retains
+  package metadata including these files. See [upstream](https://github.com/baseplate-admin/resvg-py).
+* Pillow 13.0.0 uses MIT-CMU and ships notices for bundled libraries in its
+  wheel licence file. defusedxml 0.7.1 is PSF-2.0. Both are used locally.
+* PyInstaller's bootloader exception and pywebview's BSD-3-Clause terms
+  apply separately; package metadata and readAFP's MIT notice are retained.
+* No Alpheus, iText, Java, Go, afplib, afpbox, xafp or AFPDF binary is part of
+  the Windows UAT executable. For optional adapter distribution, review its
+  pinned dependency/source obligations separately.
+* The [candidate lock](UPSTREAM_COMPATIBILITY_MATRIX.md) records exact
+  revisions. No candidate source was copied into the new writer or reader.
+* Publish binaries only with the corresponding complete Studio source and
+  build instructions at the matching commit. A local UAT build is not a
+  licence clearance for third-party binary redistribution.
