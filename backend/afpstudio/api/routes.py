@@ -345,6 +345,12 @@ def structure_index(document_id: str):
     kind = request.args.get("kind", "tags")
     if kind not in ("documents", "page_groups", "tags", "warnings"):
         return _error("Unknown index kind.", 400, "invalid_request")
+    preview_codec = request.args.get("preview_codec") or None
+    if preview_codec not in (None, "cp037", "cp500"):
+        return _error("Unsupported preview codec.", 400, "invalid_request")
+    query = request.args.get("q", "").strip()
+    if len(query) > 256 or (query and (kind != "tags" or preview_codec is None)):
+        return _error("Text search requires a preview code page and a query of at most 256 characters.", 400, "invalid_request")
     try:
         limit = int(request.args.get("limit", 100))
         offset = int(request.args.get("offset", 0))
@@ -353,12 +359,15 @@ def structure_index(document_id: str):
     except ValueError:
         return _error("Invalid limit or offset.", 400, "invalid_request")
     try:
-        result = build_structure_index(document.path, document.index)
+        result = build_structure_index(document.path, document.index, preview_codec=preview_codec)
         document.check_sources()
     except (SourceChangedError, OSError) as exc:
         _store().close(document_id)
         return _error(str(exc), 409, "source_changed")
     rows = result[kind]
+    if query:
+        needle = query.casefold()
+        rows = [row for row in rows if any(needle in item.get("preview", "").casefold() for item in row["triplets"])]
     return jsonify({"kind": kind, "items": rows[offset:offset + limit], "total": len(rows),
                     "complete": result["complete"], "coverage": result["coverage"],
                     "warnings": len(result["warnings"])})

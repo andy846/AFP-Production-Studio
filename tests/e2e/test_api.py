@@ -54,6 +54,24 @@ def test_document_index_exposes_bounded_raw_results(app_client, tmp_path):
     assert app_client.get(endpoint + "?limit=100000").status_code == 400
 
 
+def test_tle_search_is_explicitly_unverified_and_keeps_original_bytes(app_client, tmp_path):
+    source = tmp_path / "job.afp"
+    encoded = "REFERENCE42".encode("cp500")
+    tag = synthetic.structured_field(0xD3A090, synthetic.triplet(0x36, b"\x00\x00" + encoded))
+    original = synthetic.bdt() + tag + synthetic.edt()
+    source.write_bytes(original)
+    summary = open_document(app_client, source)
+    endpoint = f"/api/documents/{summary['document_id']}/structure-index"
+    assert app_client.get(endpoint + "?q=REFERENCE").status_code == 400
+    data = app_client.get(endpoint + "?preview_codec=cp500&q=reference42").get_json()
+    assert data["total"] == 1
+    triplet = data["items"][0]["triplets"][0]
+    assert triplet["preview"] == "REFERENCE42"
+    assert triplet["preview_basis"] == "operator_selected_unverified"
+    assert triplet["raw_hex"] == (b"\x00\x00" + encoded).hex()
+    assert source.read_bytes() == original
+
+
 def test_resource_index_reports_coverage_and_rejects_invalid_limit(app_client, tmp_path):
     path = tmp_path / "job.afp"
     path.write_bytes(synthetic.simplex_document(1))

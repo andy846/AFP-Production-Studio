@@ -5,8 +5,10 @@ from afpstudio.viewer.index import BDT, EDT, BNG, ENG, BPG, HEADER_BYTES
 TLE = 0xD3A090
 
 
-def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 * 1024):
+def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 * 1024, preview_codec=None):
     """Retain raw TLE triplets without guessing their character encoding."""
+    if preview_codec not in (None, "cp037", "cp500"):
+        raise ValueError("Unsupported preview codec.")
     documents, groups, tags, warnings = [], [], [], []
     document = None
     stack = []
@@ -71,7 +73,13 @@ def build_structure_index(path, index, max_items=10000, max_raw_bytes=4 * 1024 *
                             warnings.append({"code": "TLE_TRIPLET_INVALID", "offset": offset + HEADER_BYTES + pos})
                             break
                         length = payload[pos]
-                        entry["triplets"].append({"id": payload[pos + 1], "offset": offset + HEADER_BYTES + pos, "raw_hex": payload[pos + 2:pos + length].hex()})
+                        triplet_data = payload[pos + 2:pos + length]
+                        triplet = {"id": payload[pos + 1], "offset": offset + HEADER_BYTES + pos, "raw_hex": triplet_data.hex()}
+                        if preview_codec and len(triplet_data) >= 2 and (triplet["id"] == 0x36 or (triplet["id"] == 0x02 and triplet_data[1] == 0)):
+                            triplet["preview"] = triplet_data[2:].decode(preview_codec, errors="strict").strip()
+                            triplet["preview_codec"] = preview_codec
+                            triplet["preview_basis"] = "operator_selected_unverified"
+                        entry["triplets"].append(triplet)
                         pos += length
                 tags.append(entry)
     if document is not None:

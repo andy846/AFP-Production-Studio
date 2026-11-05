@@ -357,12 +357,14 @@
     const requestId = ++documentIndexRequest;
     const documentId = state.document.document_id;
     const kind = $("index-kind").value;
+    const codec = $("index-codepage").value;
+    const query = $("index-query").value.trim();
     $("document-index-note").textContent = "Loading index...";
     try {
-      const result = await api("/api/documents/" + documentId + "/structure-index?kind=" + encodeURIComponent(kind) + "&limit=100&offset=" + documentIndexOffset);
+      const result = await api("/api/documents/" + documentId + "/structure-index?kind=" + encodeURIComponent(kind) + "&limit=100&offset=" + documentIndexOffset + (codec ? "&preview_codec=" + encodeURIComponent(codec) : "") + (query && kind === "tags" ? "&q=" + encodeURIComponent(query) : ""));
       if (requestId !== documentIndexRequest || !state.document || state.document.document_id !== documentId) return;
       documentIndexTotal = result.total;
-      $("document-index-note").textContent = "Partial coverage: raw TLE bytes; text not decoded. " +
+      $("document-index-note").textContent = "Partial coverage: " + (codec ? "operator-selected " + codec + " preview is unverified. " : "raw TLE bytes; text not decoded. ") +
         (result.complete ? "Scanned fields without index warnings." : "Incomplete or limited index.") +
         " " + result.warnings + " warning(s); " + result.total + " items.";
       const list = el("table");
@@ -375,7 +377,8 @@
         const row = el("tr");
         row.appendChild(el("td", "mono", item.offset));
         row.appendChild(el("td", "num", item.page || item.first_page || "—"));
-        const detail = JSON.stringify(item);
+        const previews = (item.triplets || []).filter((part) => part.preview !== undefined).map((part) => part.preview);
+        const detail = (previews.length ? "Unverified preview: " + previews.join(" | ") + " — " : "") + JSON.stringify(item);
         row.appendChild(el("td", "mono", detail.length > 512 ? detail.slice(0, 512) + "… (truncated)" : detail));
         body.appendChild(row);
       });
@@ -1279,6 +1282,9 @@
     initSearch();
     initExport();
     $("index-kind").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
+    $("index-codepage").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
+    let indexSearchTimer;
+    $("index-query").addEventListener("input", () => { clearTimeout(indexSearchTimer); indexSearchTimer = setTimeout(() => { documentIndexOffset = 0; loadDocumentIndex(); }, 350); });
     $("index-prev").addEventListener("click", () => { documentIndexOffset = Math.max(0, documentIndexOffset - 100); loadDocumentIndex(); });
     $("index-next").addEventListener("click", () => { if (documentIndexOffset + 100 < documentIndexTotal) { documentIndexOffset += 100; loadDocumentIndex(); } });
     loadProfiles();

@@ -141,6 +141,9 @@
         <h2>Document index</h2>
         <label for="index-kind">Show</label>
         <select id="index-kind"><option value="tags">TLE attributes (raw)</option><option value="documents">Documents</option><option value="page_groups">Page groups</option><option value="warnings">Warnings</option></select>
+        <label for="index-codepage">Unverified preview</label>
+        <select id="index-codepage"><option value="">Raw only</option><option value="cp037">EBCDIC 037</option><option value="cp500">EBCDIC 500</option></select>
+        <input id="index-query" type="search" aria-label="Search TLE preview" placeholder="Search preview text">
         <button type="button" class="ghost small" id="index-prev">Previous</button>
         <button type="button" class="ghost small" id="index-next">Next</button>
       </div>
