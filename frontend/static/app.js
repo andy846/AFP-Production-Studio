@@ -144,6 +144,7 @@
     state.preflight = item.preflight;
     state.report = item.report;
     state.tree = null;
+    updateThumbnails(true);
     $("search-input").value = item.search || "";
     $("search-results").textContent = "";
     $("search-results").hidden = true;
@@ -177,6 +178,7 @@
     $("opener").hidden = false;
     $("page-holder").textContent = "";
     $("tree").textContent = "";
+    updateThumbnails(true);
     $("details").textContent = "";
     $("viewer-empty").hidden = true;
     $("doc-chip").hidden = true;
@@ -489,6 +491,7 @@
     $("opener").hidden = false;
     $("page-holder").textContent = "";
     $("tree").textContent = "";
+    updateThumbnails(true);
     $("details").textContent = "";
     $("structure-table").textContent = "";
     $("document-index-table").textContent = "";
@@ -566,6 +569,7 @@
       $(id).addEventListener("click", () => {
         const collapsed = $("workspace").classList.toggle(cls);
         $(id).setAttribute("aria-expanded", String(!collapsed));
+        if (id === "toggle-tree") updateThumbnails(true);
       });
     });
     document.querySelectorAll(".tab").forEach((button) => {
@@ -722,6 +726,12 @@
   /* ------------------------------------------------------------------ */
 
   function initViewer() {
+    $("toggle-thumbnails").addEventListener("click", () => {
+      thumbnailsEnabled = !thumbnailsEnabled;
+      updateThumbnails(true);
+    });
+    $("thumbnail-prev").addEventListener("click", () => updateThumbnails(true, thumbnailStart - thumbnailBatch));
+    $("thumbnail-next").addEventListener("click", () => updateThumbnails(true, thumbnailStart + thumbnailBatch));
     $("page-prev").addEventListener("click", () => showPage((state.page || 1) - 1));
     $("page-next").addEventListener("click", () => showPage((state.page || 1) + 1));
     $("page-first").addEventListener("click", () => showPage(1));
@@ -860,6 +870,88 @@
     return { width: width, height: height };
   }
 
+  const thumbnailBatch = 12;
+  let thumbnailsEnabled = false;
+  let thumbnailStart = 1;
+  let thumbnailKey = "";
+  let thumbnailObserver = null;
+
+  function updateThumbnails(reset = false, requestedStart = null) {
+    const documentId = state.document?.document_id;
+    const total = state.document?.page_count || 0;
+    const enabled = thumbnailsEnabled && total > 0;
+    const visible = enabled && !$("workspace").classList.contains("tree-collapsed");
+    $("toggle-thumbnails").disabled = !total;
+    $("toggle-thumbnails").setAttribute("aria-pressed", String(enabled));
+    $("thumbnail-panel").hidden = !enabled;
+    $("tree").hidden = enabled;
+    const list = $("page-thumbnails");
+    const activeStart = Math.floor((Math.max(1, state.page) - 1) / thumbnailBatch) * thumbnailBatch + 1;
+    const start = Math.max(1, Math.min(requestedStart ?? activeStart, Math.max(1, Math.ceil(total / thumbnailBatch) * thumbnailBatch - thumbnailBatch + 1)));
+    const key = visible ? documentId + ":" + start : "";
+    if (reset || key !== thumbnailKey) {
+      thumbnailObserver?.disconnect();
+      thumbnailObserver = null;
+      list.replaceChildren();
+      thumbnailKey = key;
+      if (!visible) return;
+      thumbnailStart = start;
+      const end = Math.min(total, start + thumbnailBatch - 1);
+      $("thumbnail-range").textContent = start + "–" + end + " / " + total;
+      $("thumbnail-prev").disabled = start === 1;
+      $("thumbnail-next").disabled = end === total;
+      const loadPreview = (holder) => {
+        const img = el("img");
+        img.alt = "";
+        img.decoding = "async";
+        img.addEventListener("error", () => { holder.textContent = "Preview unavailable"; }, {once: true});
+        holder.replaceChildren(img);
+        img.src = "/api/documents/" + documentId + "/page/" + (Number(holder.dataset.page) - 1) + ".svg";
+      };
+      if (typeof IntersectionObserver !== "undefined") {
+        thumbnailObserver = new IntersectionObserver((entries, observer) => {
+          if (thumbnailObserver !== observer) return;
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            observer.unobserve(entry.target);
+            loadPreview(entry.target);
+          }
+        }, {root: list});
+      }
+      for (let page = start; page <= end; page += 1) {
+        const button = el("button", "page-thumbnail");
+        button.type = "button";
+        button.dataset.page = String(page);
+        button.setAttribute("aria-label", "Show page " + page);
+        const holder = el("span", "thumbnail-preview", "Page preview");
+        holder.setAttribute("aria-hidden", "true");
+        holder.dataset.page = String(page);
+        button.append(holder, el("span", null, "Page " + page));
+        button.addEventListener("click", () => {
+          if (state.tab !== "viewer") document.querySelector('[data-tab="viewer"]').click();
+          showPage(page);
+        });
+        list.appendChild(button);
+        if (thumbnailObserver) thumbnailObserver.observe(holder);
+        else loadPreview(holder);
+      }
+      list.scrollTop = 0;
+    }
+    list.querySelectorAll("button").forEach((button) => {
+      if (Number(button.dataset.page) === state.page) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    if (visible && requestedStart === null) {
+      const current = list.querySelector('[aria-current="page"]');
+      if (current) {
+        const row = current.getBoundingClientRect();
+        const bounds = list.getBoundingClientRect();
+        if (row.top < bounds.top) list.scrollTop += row.top - bounds.top;
+        else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
+      }
+    }
+  }
+
   let pageRequest = 0;
   async function showPage(page) {
     if (!state.document) return;
@@ -873,6 +965,7 @@
     const total = state.document.page_count || 1;
     const clamped = Math.min(Math.max(1, page), total);
     state.page = clamped;
+    updateThumbnails();
     scheduleRecent();
     $("page-number").value = String(clamped);
     $("viewer-empty").hidden = true;

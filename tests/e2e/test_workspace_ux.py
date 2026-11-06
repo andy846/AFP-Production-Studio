@@ -145,6 +145,45 @@ def test_viewer_fit_modes_shortcuts_and_resize(tmp_path, monkeypatch):
         server.stop()
 
 
+def test_page_thumbnails_load_on_demand_and_navigate(tmp_path, monkeypatch):
+    playwright = pytest.importorskip("playwright.sync_api")
+    from afpstudio.config import Config
+    from afpstudio.desktop import LocalServer
+    from afpstudio.testing.synthetic import simplex_document
+    monkeypatch.setenv("AFP_STUDIO_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AFP_STUDIO_ALLOWED_ROOTS", str(tmp_path))
+    source = tmp_path / "thumbnails.afp"
+    source.write_bytes(simplex_document(48))
+    server = LocalServer(Config())
+    url = server.start()
+    try:
+        with playwright.sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            previews = []
+            page.on("request", lambda req: previews.append(req.url)
+                    if req.resource_type == "image" and "/page/" in req.url else None)
+            page.goto(url)
+            page.locator("#path-input").fill(str(source))
+            page.locator("#open-button").click()
+            page.locator("#page-holder svg").wait_for()
+            assert not previews
+            page.locator("#toggle-thumbnails").click(timeout=3000)
+            page.wait_for_function("() => document.querySelector('#page-thumbnails img')?.naturalWidth > 0")
+            assert 0 < len(previews) < 12
+            assert page.locator("#page-thumbnails button").count() == 12
+            page.get_by_role("button", name="Show page 2", exact=True).click()
+            assert page.locator("#page-number").input_value() == "2"
+            page.locator("#page-last").click()
+            assert page.get_by_role("button", name="Show page 48", exact=True).get_attribute("aria-current") == "page"
+            page.locator("#thumbnail-prev").click()
+            page.get_by_role("button", name="Show page 25", exact=True).click()
+            assert page.locator("#page-number").input_value() == "25"
+            browser.close()
+    finally:
+        server.stop()
+
+
 def test_cancelling_multi_open_keeps_completed_file_and_stops_queue(tmp_path, monkeypatch):
     playwright = pytest.importorskip("playwright.sync_api")
     from afpstudio.config import Config

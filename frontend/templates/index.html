@@ -109,9 +109,18 @@
     <aside class="panel tree-panel" id="tree-panel">
       <div class="panel-head">
         <h2>AFP tree</h2>
+        <button type="button" class="ghost small" id="toggle-thumbnails" aria-pressed="false" aria-controls="thumbnail-panel" disabled>Thumbnails</button>
         <button class="ghost small" id="close-document" title="Close the document">Close</button>
       </div>
       <div class="tree" id="tree"></div>
+      <section id="thumbnail-panel" class="thumbnail-panel" aria-label="Page thumbnails" hidden>
+        <div class="thumbnail-navigation">
+          <button type="button" class="ghost small" id="thumbnail-prev" aria-label="Previous thumbnails">‹</button>
+          <span id="thumbnail-range" aria-live="polite"></span>
+          <button type="button" class="ghost small" id="thumbnail-next" aria-label="Next thumbnails">›</button>
+        </div>
+        <div id="page-thumbnails" class="page-thumbnails"></div>
+      </section>
       <div class="tree-search">
         <input id="search-input" type="search" placeholder="Search fields or text">
       </div>

@@ -16,6 +16,8 @@
 - Viewer fit-page and fit-width modes follow page and window changes; manual
   zoom remains stable. Shortcut help and viewer-scoped keyboard controls are
   available in the workbench.
+- The document sidebar can show page thumbnails in groups of 12. Preview
+  images load as they become visible, and selecting one jumps to its page.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.
