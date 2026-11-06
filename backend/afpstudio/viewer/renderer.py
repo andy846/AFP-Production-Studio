@@ -23,6 +23,7 @@ differential test, which is what keeps the two paths honest.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from pathlib import Path
 
 from readafp.parser import StructuredField
@@ -146,14 +147,27 @@ class PageRenderer:
 
     # -- rendering -------------------------------------------------------
 
-    def text_runs(self, page: int, *, codepage: str):
+    def text_runs(self, page: int, *, codepage: str, global_fields: list[int] | None = None):
         """Positioned preview text; offsets identify PTX fields, not glyph bytes."""
         if codepage not in ("cp037", "cp500"):
             raise ValueError("Select a supported fallback code page explicitly.")
         if page < 0 or page >= self.index.page_count:
             raise RenderError("Text extraction currently requires an explicitly bracketed page.")
+        if global_fields is None:
+            selection = select_replay_fields(self.index, page)
+        else:
+            # The document search computes shared fields once. Merge only the
+            # selected page's bracket while retaining the physical field order.
+            bounds = self.index.fields_for_page(page)
+            low = bisect_left(global_fields, bounds.start)
+            high = bisect_left(global_fields, bounds.stop, lo=low)
+            selection = global_fields[:low]
+            selection.extend(i for i in bounds if self.index.pages[i] == page
+                             or self.index.scopes[i] or not self.index.in_page[i]
+                             or self.index.sf_ids[i] in ALWAYS_INCLUDE)
+            selection.extend(global_fields[high:])
         with self.path.open("rb") as handle:
-            fields = _read_fields(handle, self.index, select_replay_fields(self.index, page))
+            fields = _read_fields(handle, self.index, selection)
         pages = extract_pages(fields, codepage, self.embed_small_fonts)
         if not pages:
             raise RenderError("No page text model was produced.")

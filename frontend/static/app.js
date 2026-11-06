@@ -1632,6 +1632,82 @@
     });
   }
 
+  function initPreviewSearch() {
+    const dialog = $("preview-search-dialog");
+    const status = $("preview-search-status");
+    const results = $("preview-search-results");
+    const start = $("preview-search-start");
+    const cancel = $("preview-search-cancel");
+    let jobId = null;
+    let documentId = null;
+    const current = () => documentId === state.document?.document_id;
+    $("preview-search-open").addEventListener("click", () => {
+      if (!state.document) { setStatus("Open an AFP document first."); return; }
+      if (!current() && !jobId) {
+        status.textContent = "";
+        results.replaceChildren();
+      }
+      dialog.showModal();
+    });
+    $("preview-search-close").addEventListener("click", () => dialog.close());
+    cancel.addEventListener("click", async () => {
+      if (!jobId) return;
+      cancel.disabled = true;
+      try { await api("/api/jobs/" + jobId + "/cancel", {method: "POST"}); }
+      catch (err) { status.textContent = err.message; }
+    });
+    $("preview-search-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!state.document || start.disabled) return;
+      documentId = state.document.document_id;
+      const q = $("preview-search-query").value.trim();
+      if (!q) { status.textContent = "Enter search text."; return; }
+      start.disabled = true;
+      results.replaceChildren();
+      status.textContent = "Preparing search…";
+      try {
+        const response = await api("/api/documents/" + documentId + "/text-search", {
+          method: "POST", body: {q, codepage: $("preview-search-codepage").value}
+        });
+        jobId = response.job.id;
+        cancel.disabled = false;
+        while (true) {
+          const job = await api("/api/jobs/" + jobId);
+          status.textContent = job.error || job.message;
+          if (job.state === "completed") {
+            if (!current()) { status.textContent = "The search finished for another document."; break; }
+            const data = job.result;
+            status.textContent = data.items.length + " matches in " + data.scanned_pages + " of " +
+              data.total_pages + " pages." + (data.complete ? "" : " Preview coverage is incomplete.") +
+              (data.limited ? " Stopped at the 200-match limit." : "");
+            for (const hit of data.items) {
+              const hitDocument = documentId;
+              const button = el("button", "ghost", "Page " + hit.page +
+                (hit.offset === null ? "" : " · offset " + hit.offset) + " — " + hit.text);
+              button.type = "button";
+              button.addEventListener("click", async () => {
+                if (state.document?.document_id !== hitDocument) return;
+                dialog.close();
+                document.querySelector('[data-tab="viewer"]').click();
+                await showPage(hit.page);
+                if (state.document?.document_id !== hitDocument || state.page !== hit.page ||
+                    !Number.isInteger(hit.offset)) return;
+                const nodes = $("page-holder").querySelectorAll('[data-src="' + hit.offset + '"]');
+                nodes.forEach((node) => node.classList.add("preview-search-mark"));
+                nodes[0]?.scrollIntoView({block: "nearest", inline: "nearest"});
+              });
+              results.appendChild(button);
+            }
+            break;
+          }
+          if (["failed", "cancelled"].includes(job.state)) break;
+          await new Promise((resolve) => setTimeout(resolve, 350));
+        }
+      } catch (err) { status.textContent = err.message; }
+      finally { jobId = null; start.disabled = false; cancel.disabled = true; }
+    });
+  }
+
   async function runSearch() {
     const query = $("search-input").value.trim();
     const box = $("search-results");
@@ -1906,6 +1982,7 @@
     initPanelResizing();
     initWorkspacePreferences();
     initSearch();
+    initPreviewSearch();
     initExport();
     initEngineering();
     initBatch();

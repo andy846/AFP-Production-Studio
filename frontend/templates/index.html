@@ -123,6 +123,7 @@
       </section>
       <div class="tree-search">
         <input id="search-input" type="search" placeholder="Search fields or text">
+        <button type="button" id="preview-search-open" class="ghost small">Search preview text…</button>
       </div>
       <div class="search-results" id="search-results" hidden></div>
       <div id="tree-resize" class="panel-resize panel-resize-right" role="separator" tabindex="0" aria-label="Resize document tree" aria-orientation="vertical" aria-valuemin="160" aria-valuemax="480" aria-valuenow="240"></div>
@@ -277,6 +278,23 @@
     </aside>
   </main>
 
+  <dialog id="preview-search-dialog" aria-labelledby="preview-search-title">
+    <h2 id="preview-search-title">Search document preview text</h2>
+    <p>Searches decoded text within individual runs. Text in images, or glyphs without a Unicode mapping, may be missing.</p>
+    <form id="preview-search-form">
+      <label for="preview-search-query">Search text</label>
+      <input id="preview-search-query" type="search" required maxlength="256">
+      <label for="preview-search-codepage">Fallback code page</label>
+      <select id="preview-search-codepage"><option value="cp500">EBCDIC 500</option><option value="cp037">EBCDIC 037</option></select>
+      <div class="dialog-actions">
+        <button type="submit" id="preview-search-start">Search</button>
+        <button type="button" id="preview-search-cancel" disabled>Cancel search</button>
+        <button type="button" id="preview-search-close">Close</button>
+      </div>
+    </form>
+    <p id="preview-search-status" role="status"></p>
+    <div id="preview-search-results"></div>
+  </dialog>
   <dialog id="overwrite-dialog" aria-labelledby="overwrite-title">
     <h2 id="overwrite-title">Replace existing output?</h2>
     <p>The selected output already exists. Replacing it cannot be undone.</p>

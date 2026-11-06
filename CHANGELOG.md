@@ -18,6 +18,8 @@
   available in the workbench.
 - The document sidebar can show page thumbnails in groups of 12. Preview
   images load as they become visible, and selecting one jumps to its page.
+- A cancellable document-wide preview text search uses decoded text runs,
+  reports coverage limits, and links matches back to pages and PTX fields.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

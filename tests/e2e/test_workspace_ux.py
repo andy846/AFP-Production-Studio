@@ -150,6 +150,12 @@ def test_viewer_fit_modes_shortcuts_and_resize(tmp_path, monkeypatch):
             assert page.locator("#shortcuts-dialog").is_visible()
             page.keyboard.press("Escape")
             assert not page.locator("#shortcuts-dialog").is_visible()
+            page.locator("#preview-search-open").click()
+            page.locator("#preview-search-query").fill("LETTERHEAD")
+            page.locator("#preview-search-start").click()
+            page.locator("#preview-search-results").get_by_role("button", name="Page 4", exact=False).click()
+            assert page.locator("#page-number").input_value() == "4"
+            page.locator("#page-holder .preview-search-mark").first.wait_for()
             browser.close()
     finally:
         server.stop()

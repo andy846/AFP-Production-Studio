@@ -29,7 +29,7 @@ from afpstudio.security.paths import PathError, resolve_under_roots, resolve_sel
 from afpstudio.security.paths import atomic_write_bytes
 from afpstudio.viewer.resources import resource_dependencies
 from afpstudio.viewer.jobs import JobQueueFull
-from afpstudio.viewer.renderer import RenderError
+from afpstudio.viewer.renderer import RenderError, select_global_fields
 from afpstudio.engineering.writer import write_document
 from afpstudio.engineering.conversion import convert_preview
 from afpstudio.engineering.documents import combine_documents
@@ -407,6 +407,65 @@ def positioned_text(document_id):
     rows = [item for item in result["items"] if query.casefold() in item["text"].casefold()]
     result.update(items=rows[offset:offset + limit], total=len(rows))
     return jsonify(result)
+
+
+@bp.post("/documents/<document_id>/text-search")
+@require_csrf
+def search_preview_text(document_id: str):
+    document, error = _session_or_error(document_id)
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    query = payload.get("q")
+    codepage = payload.get("codepage")
+    if not isinstance(query, str) or not query.strip() or len(query) > 256:
+        return _error("Enter a search query of at most 256 characters.")
+    if codepage not in ("cp037", "cp500"):
+        return _error("Select a supported fallback code page.")
+    needle = query.strip().casefold()
+    total = document.page_count
+    indexed = document.index.page_count
+    store = _store()
+
+    def work(context):
+        items = []
+        scanned = 0
+        incomplete = total - indexed
+        limited = False
+        shared = select_global_fields(document.index)
+        for page in range(indexed):
+            context.progress(page / max(1, total), f"Searching page {page + 1} of {total}.")
+            if store.get(document_id) is not document:
+                raise SourceChangedError("The document was closed during search.")
+            try:
+                result = document.renderer.text_runs(page, codepage=codepage, global_fields=shared)
+            except RenderError:
+                incomplete += 1
+                continue
+            scanned += 1
+            if not result["complete"]:
+                incomplete += 1
+            for run in result["items"]:
+                start = run["text"].casefold().find(needle)
+                if start < 0:
+                    continue
+                if len(items) == 200:
+                    limited = True
+                    break
+                snippet = run["text"][max(0, start - 60):start + len(query) + 60]
+                items.append({"page": run["page"], "offset": run["offset"], "text": snippet})
+            if limited:
+                break
+        document.check_sources()
+        return {"items": items, "scanned_pages": scanned, "total_pages": total,
+                "complete": not (incomplete or limited or document.index.truncated),
+                "incomplete_pages": incomplete, "limited": limited}
+
+    try:
+        job = _jobs().submit("text-search", "Search preview text", work)
+    except JobQueueFull as exc:
+        return _error(str(exc), 429, "job_queue_full")
+    return jsonify({"job": job.as_dict()})
 
 
 @bp.get("/documents/<document_id>/fields")
