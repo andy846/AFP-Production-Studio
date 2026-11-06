@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ theme }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -26,6 +26,7 @@
       <button type="button" class="primary" id="open-new">Open AFP</button>
       <button type="button" id="recent-open" title="Recent files (Ctrl+Shift+O)">Recent</button>
       <button type="button" id="shortcut-help" title="Show keyboard shortcuts">Shortcuts</button>
+      <button type="button" id="theme-toggle" aria-pressed="{{ 'true' if theme == 'dark' else 'false' }}">Dark mode</button>
       <span class="privacy-note" title="Local processing; selected network shares may be read">
         Processed locally
       </span>
@@ -143,10 +144,10 @@
           <button class="ghost small" id="zoom-actual" title="Reset to 100% viewer scale">100%</button>
           <span class="pager">
             <button class="ghost small" id="page-first" title="First page" aria-label="First page">&laquo;</button>
-            <button class="ghost small" id="page-prev" title="Previous page" aria-label="Previous page">&lsaquo;</button>
+            <button class="ghost small" id="page-prev" title="Previous page (←)" aria-label="Previous page" aria-keyshortcuts="ArrowLeft">&lsaquo;</button>
             <input id="page-number" type="number" min="1" value="1" aria-label="Page number">
             <span id="page-total">/ 0</span>
-            <button class="ghost small" id="page-next" title="Next page" aria-label="Next page">&rsaquo;</button>
+            <button class="ghost small" id="page-next" title="Next page (→)" aria-label="Next page" aria-keyshortcuts="ArrowRight">&rsaquo;</button>
             <button class="ghost small" id="page-last" title="Last page" aria-label="Last page">&raquo;</button>
           </span>
         </div>
@@ -372,7 +373,8 @@
       <dt>Ctrl+Tab / Ctrl+Shift+Tab</dt><dd>Next / previous document (desktop)</dd>
       <dt>Ctrl+W</dt><dd>Close document (desktop)</dd>
       <dt>Alt+Shift+[ / ]</dt><dd>Previous / next document</dd>
-      <dt>Page Up / Page Down</dt><dd>Previous / next page</dd>
+      <dt>← / →</dt><dd>Previous / next page in Viewer</dd>
+      <dt>Page Up / Page Down</dt><dd>Previous / next page when the preview has focus</dd>
       <dt>Ctrl+Home / Ctrl+End</dt><dd>First / last page</dd>
       <dt>Ctrl++ / Ctrl+-</dt><dd>Zoom in / out</dd>
       <dt>F / W</dt><dd>Fit page / fit width</dd>

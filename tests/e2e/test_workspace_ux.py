@@ -48,7 +48,31 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
             page.locator('[data-tab="viewer"]').click()
             page.locator(".document-tab").filter(has_text="first.afp").click()
             page.wait_for_function("() => document.querySelector('#page-number').value === '3'")
+            preview = page.locator("#page-holder svg")
+            preview.wait_for()
+            paper = preview.evaluate("svg => getComputedStyle(svg).backgroundColor")
+            theme = page.get_by_role("button", name="Dark mode")
+            with page.expect_response(lambda res: res.url.endswith("/api/workspace") and res.request.method == "POST") as saved:
+                theme.click()
+            assert saved.value.ok
+            playwright.expect(theme).to_have_attribute("aria-pressed", "true")
+            assert page.locator("html").evaluate("el => getComputedStyle(el).colorScheme") == "dark"
+            assert preview.evaluate("svg => getComputedStyle(svg).backgroundColor") == paper == "rgb(255, 255, 255)"
+            another = browser.new_page()
+            another.goto(url)
+            playwright.expect(another.locator("html")).to_have_attribute("data-theme", "dark")
+            another.close()
+            page.bring_to_front()
+            page.keyboard.press("ArrowLeft")
+            playwright.expect(page.locator("#page-number")).to_have_value("2", timeout=2000)
+            page.locator("#search-input").fill("hello")
+            page.locator("#search-input").press("Home")
+            page.keyboard.press("ArrowRight")
+            assert page.locator("#search-input").evaluate("el => el.selectionStart") == 1
+            assert page.locator("#page-number").input_value() == "2"
             page.locator("#viewer-stage").focus()
+            page.keyboard.press("ArrowRight")
+            playwright.expect(page.locator("#page-number")).to_have_value("3")
             page.keyboard.press("PageDown")
             page.wait_for_function("() => document.querySelector('#page-number').value === '4'")
             page.keyboard.press("Control+g")

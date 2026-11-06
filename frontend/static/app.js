@@ -109,6 +109,31 @@
     });
   }
 
+  function initTheme() {
+    const root = document.documentElement;
+    const button = $("theme-toggle");
+    const apply = theme => {
+      root.dataset.theme = theme;
+      button.setAttribute("aria-pressed", String(theme === "dark"));
+    };
+    let saving = false;
+    button.addEventListener("click", async () => {
+      if (saving) return;
+      saving = true;
+      const previous = root.dataset.theme;
+      const theme = previous === "dark" ? "light" : "dark";
+      apply(theme);
+      try {
+        await api("/api/workspace", {method: "POST", body: {theme}});
+      } catch (err) {
+        apply(previous);
+        setStatus("Could not save appearance. " + err.message);
+      } finally {
+        saving = false;
+      }
+    });
+  }
+
   function saveActiveDocument() {
     if (!state.document) return;
     const item = documents.get(state.document.document_id);
@@ -2053,6 +2078,7 @@
     initViewer();
     initPanelResizing();
     initWorkspacePreferences();
+    initTheme();
     initSearch();
     window.initCompareWorkbench({api, nativeApi, pickSavePath,
       documents: () => [...documents.values()].map((item) => item.summary),
@@ -2097,7 +2123,7 @@
     $("close-document").addEventListener("click", closeActiveDocument);
     document.addEventListener("keydown", (event) => {
       if (event.isComposing || event.defaultPrevented || document.querySelector("dialog[open]")) return;
-      const editable = event.target.closest("input, textarea, select, [contenteditable=true]");
+      const editable = event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])");
       const key = event.key.toLowerCase();
       if (event.ctrlKey && event.shiftKey && !event.altKey && key === "o") {
         event.preventDefault(); $("recent-open").click(); return;
@@ -2129,6 +2155,15 @@
         if (nativeApi() && event.ctrlKey && !event.shiftKey && !event.altKey && key === "w") {
           event.preventDefault(); closeActiveDocument(); return;
         }
+      }
+      if (!editable && state.document?.page_count && state.tab === "viewer" &&
+          $("opener").hidden && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
+          (key === "arrowleft" || key === "arrowright")) {
+        event.preventDefault();
+        if (event.repeat) return;
+        const next = state.page + (key === "arrowleft" ? -1 : 1);
+        if (next >= 1 && next <= state.document.page_count) showPage(next);
+        return;
       }
       if (editable || !state.document || state.tab !== "viewer" ||
           !$("viewer-stage").contains(document.activeElement)) return;

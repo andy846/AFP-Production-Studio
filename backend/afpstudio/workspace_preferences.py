@@ -9,6 +9,8 @@ from pathlib import Path
 
 from .security.paths import atomic_write_bytes
 
+THEMES = ("light", "dark")
+
 
 class WorkspacePreferences:
     def __init__(self, path: Path):
@@ -17,7 +19,7 @@ class WorkspacePreferences:
 
     def _reload(self):
         self.data = {"version": 1, "remember": True, "tree_width": 240,
-                     "details_width": 300, "recent": []}
+                     "details_width": 300, "theme": "light", "recent": []}
         try:
             if self.path.stat().st_size <= 65536:
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
@@ -53,6 +55,8 @@ class WorkspacePreferences:
             return
         if type(raw.get("remember")) is bool:
             self.data["remember"] = raw["remember"]
+        if raw.get("theme") in THEMES:
+            self.data["theme"] = raw["theme"]
         for key, low in (("tree_width", 160), ("details_width", 200)):
             if type(raw.get(key)) is int and low <= raw[key] <= 480:
                 self.data[key] = raw[key]
@@ -78,8 +82,10 @@ class WorkspacePreferences:
         atomic_write_bytes(self.path, json.dumps(self.data, ensure_ascii=False).encode("utf-8"))
 
     def update(self, changes):
-        if set(changes) - {"remember", "tree_width", "details_width", "clear_recent"}:
+        if set(changes) - {"remember", "tree_width", "details_width", "clear_recent", "theme"}:
             raise ValueError("Unknown workspace setting.")
+        if "theme" in changes and changes["theme"] not in THEMES:
+            raise ValueError("Invalid workspace theme.")
         for key, low in (("tree_width", 160), ("details_width", 200)):
             if key in changes and (type(changes[key]) is not int or not low <= changes[key] <= 480):
                 raise ValueError("Invalid panel width.")
@@ -87,7 +93,7 @@ class WorkspacePreferences:
             if key in changes and type(changes[key]) is not bool:
                 raise ValueError("Invalid workspace setting.")
         with self._transaction():
-            for key in ("remember", "tree_width", "details_width"):
+            for key in ("remember", "tree_width", "details_width", "theme"):
                 if key in changes:
                     self.data[key] = changes[key]
             if changes.get("clear_recent") or not self.data["remember"]:

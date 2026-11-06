@@ -2,6 +2,9 @@
 
 ## 0.3.0-dev — Unified Engine UAT
 
+- Added a persistent Dark mode toggle. In Viewer, Left and Right Arrow
+  turn pages directly without requiring focus on the preview.
+
 - Faster previews for AFPs with large object containers or many embedded
   bitmap fonts. Unused container data is kept in chunks instead of repeatedly
   copied; bitmap glyphs keep the same rendered pixels.

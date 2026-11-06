@@ -51,6 +51,16 @@ def test_layout_validation_and_csrf(app_client):
     assert values["tree_width"] == 256 and values["details_width"] == 320
 
 
+def test_theme_defaults_to_light_and_accepts_only_supported_values(app_client):
+    headers = {HEADER_NAME: app_client.get("/api/csrf").get_json()["token"]}
+    assert app_client.get("/api/workspace").get_json()["theme"] == "light"
+    assert app_client.post("/api/workspace", json={"theme": "dark"}).status_code == 403
+    assert app_client.post("/api/workspace", json={"theme": "dark"}, headers=headers).status_code == 200
+    assert b'data-theme="dark"' in app_client.get("/").data
+    assert app_client.post("/api/workspace", json={"theme": ["dark"]}, headers=headers).status_code == 400
+    assert app_client.get("/api/workspace").get_json()["theme"] == "dark"
+
+
 def test_settings_persist_and_invalid_file_recovers(tmp_path):
     from afpstudio.workspace_preferences import WorkspacePreferences
     path = tmp_path / "workspace.json"

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --ink: #172b3a;
   --ink-dim: #455b69;
   --ink-faint: #5c6f7a;
@@ -143,6 +144,66 @@ dialog h2 { margin: 0; font: 22px var(--serif); }
 .shortcut-list dd { margin: 0; }
 .overwrite-path { overflow-wrap: anywhere; padding: 10px; background: var(--bg-raised); font: 12px var(--mono); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Theme the workspace, not the paper or any rendered document pixels. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e4efee;
+  --ink-dim: #c2d3d1;
+  --ink-faint: #a1b7b4;
+  --bg: #121b20;
+  --bg-panel: #1c292f;
+  --bg-raised: #25363c;
+  --line: #40565c;
+  --accent: #86ddc5;
+  --accent-soft: #294841;
+  --pass: #89ddad;
+  --warning: #f4cd83;
+  --fail: #ffaaa4;
+  --unresolved: #a0ccfa;
+  --shadow: 0 18px 55px rgba(0, 0, 0, .35);
+  --dark-input: #141f24;
+  --dark-control-border: #5a7276;
+  --dark-hover: #30464d;
+}
+[data-theme="dark"] body { background: var(--bg); }
+[data-theme="dark"] :is(.masthead, .opener-inner, .statusbar, .status-pill, dialog) { background: var(--bg-panel); }
+[data-theme="dark"] :is(.tabs, .document-tabs, .panel-head, thead th, .settings pre) { background: var(--bg-raised); }
+[data-theme="dark"] :is(.brand-text em, .opener-form label, .field > span, .tab, .panel-toggle, .panel-head h2, thead th, .statusbar) { color: var(--ink-dim); }
+[data-theme="dark"] .brand-mark {
+  border-color: #298475;
+  background: linear-gradient(180deg, #86ddc5 0 6px, transparent 6px), #298475;
+}
+[data-theme="dark"] .privacy-note { color: var(--pass); background: var(--accent-soft); border-color: var(--dark-control-border); }
+[data-theme="dark"] :is(.opener-inner h1, .tab:hover) { color: var(--ink); }
+[data-theme="dark"] :is(.tab.is-active, .finding-link) { color: var(--accent); }
+[data-theme="dark"] :is(input[type="text"], input[type="search"], input[type="number"], select, textarea) {
+  background: var(--dark-input); border-color: var(--dark-control-border);
+}
+[data-theme="dark"] input[aria-invalid="true"] { border-color: var(--fail); }
+[data-theme="dark"] :is(input, textarea)::placeholder { color: var(--ink-faint); }
+[data-theme="dark"] :is(input, select, textarea, button, [tabindex], summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+[data-theme="dark"] .panel-resize:focus-visible { outline-offset: -3px; }
+[data-theme="dark"] button { background: var(--bg-raised); border-color: var(--dark-control-border); color: var(--ink); }
+[data-theme="dark"] :is(button.ghost, .tab, .panel-toggle, .finding-link) { background: transparent; }
+[data-theme="dark"] button:hover { background: var(--dark-hover); border-color: var(--accent); }
+[data-theme="dark"] :is(button.primary, #theme-toggle[aria-pressed="true"]) { background: var(--accent); color: #132e29; border-color: var(--accent); }
+[data-theme="dark"] :is(button.primary, #theme-toggle[aria-pressed="true"]):hover { background: #a7ecd9; }
+[data-theme="dark"] .tab.is-active { border-bottom-color: var(--accent); }
+[data-theme="dark"] .document-tab[aria-current="true"] { background: var(--bg-panel); border-bottom-color: var(--accent); }
+[data-theme="dark"] :is(.tree-item:hover, .search-hit:hover, tbody tr:hover) { background: var(--dark-hover); }
+[data-theme="dark"] :is(.tree-item.is-active, .page-thumbnail[aria-current="page"], tbody tr.is-selected) { background: var(--accent-soft); }
+[data-theme="dark"] tbody tr.is-selected { box-shadow: inset 3px 0 var(--accent); }
+[data-theme="dark"] tbody td { border-color: var(--line); }
+[data-theme="dark"] .viewer-stage { background: repeating-linear-gradient(45deg, #141f24 0 12px, #18252a 12px 24px); }
+[data-theme="dark"] .compare-stage { background: var(--dark-input); }
+[data-theme="dark"] .page-holder svg { box-shadow: 0 10px 28px rgba(0, 0, 0, .45); }
+[data-theme="dark"] .thumbnail-preview { color: #455b69; }
+[data-theme="dark"] .timeline-run { color: var(--ink); }
+[data-theme="dark"] .opener-progress .bar { background: var(--dark-input); }
+[data-theme="dark"] .opener-progress .bar span { background: var(--accent); }
+[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, .64); }
+
 @media (max-width: 1100px) {
   .panel-resize { display: none; }
   .workspace, .workspace.tree-collapsed, .workspace.details-collapsed, .workspace.tree-collapsed.details-collapsed { grid-template-columns: 210px minmax(0,1fr); }

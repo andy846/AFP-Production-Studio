@@ -87,10 +87,15 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
     def index():
         if "csrf_token" not in session:
             issue_token()
+        try:
+            theme = app.extensions["studio"]["workspace"].snapshot()["theme"]
+        except OSError:
+            theme = "light"
         return render_template(
             "index.html",
             csrf_token=session.get("csrf_token", ""),
             version=_version(),
+            theme=theme,
         )
 
     @app.get("/healthz")

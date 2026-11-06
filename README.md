@@ -94,6 +94,10 @@ printer profile or parser cross-check. Open a second AFP before selecting
 **Compare** to review differences between the files. In desktop mode,
 report export can use the native save dialog.
 
+In Viewer, use **←** and **→** to turn pages. The **Dark mode** button
+switches the workspace appearance and remembers your choice on this
+installation. AFP page previews keep their original colors.
+
 Version 0.2.2 can open an AFP file directly when Studio is set as the
 default `.afp` app in Windows. See the Windows setup guide for details.
 
