@@ -45,12 +45,13 @@
       const button = el("button", "recent-file", item.path + "  ·  Page " + item.page);
       button.type = "button";
       button.addEventListener("click", async () => {
-        if (multiOpenRunning || state.openJobId || documents.size >= 8) {
+        if (multiOpenRunning || !$("opener-progress").hidden || documents.size >= 8) {
           setStatus("Wait for the current open or close a document first.");
           return;
         }
         $("open-error").textContent = "";
         $("open-button").disabled = true;
+        $("opener-back").disabled = true;
         $("opener-progress").hidden = false;
         $("opener-status").textContent = "Loading — preparing the document.";
         try {
@@ -301,6 +302,38 @@
   function initOpener() {
     $("viewer-stage").prepend($("opener"));
     $("viewer-empty").hidden = true;
+    const input = $("path-input");
+    let previousTab = "viewer";
+    let pickerBusy = false;
+    function showOpener() {
+      if ($("opener").hidden) previousTab = state.tab;
+      document.querySelector('[data-tab="viewer"]').click();
+      $("opener").hidden = false;
+      $("opener-back").hidden = !state.document;
+    }
+    function leaveOpener() {
+      if (!state.document || !$("opener-progress").hidden || multiOpenRunning) return;
+      $("opener").hidden = true;
+      $("opener-back").hidden = true;
+      document.querySelector('[data-tab="' + previousTab + '"]').click();
+      $("open-new").focus();
+    }
+    async function browse() {
+      if (pickerBusy || !$("opener-progress").hidden) return;
+      pickerBusy = true;
+      try {
+        const selected = await pickFile("pick_afp_file");
+        if (!selected) return;
+        showOpener();
+        input.value = selected.path;
+        state.pathGrant = selected.grant || null;
+        $("open-form").requestSubmit();
+      } finally { pickerBusy = false; }
+    }
+    $("opener-back").addEventListener("click", leaveOpener);
+    $("opener").addEventListener("keydown", event => {
+      if (event.key === "Escape" && state.document && $("opener-progress").hidden) leaveOpener();
+    });
     // The Browse buttons only work where the desktop shell provides a
     // native dialog. In a browser tab they are hidden, because there
     // is nothing behind them.
@@ -309,6 +342,9 @@
       $("browse-button").hidden = false;
       $("browse-multiple").hidden = false;
       $("browse-formdef-button").hidden = false;
+      $("opener-pickers").hidden = false;
+      $("path-label").textContent = "Or enter a file path";
+      $("open-button").classList.remove("primary");
       if (startupHandled) return;
       startupHandled = true;
       try {
@@ -323,22 +359,15 @@
       }
     });
 
-    $("browse-button").addEventListener("click", async () => {
-      const selected = await pickFile("pick_afp_file");
-      if (selected) {
-        $("path-input").value = selected.path;
-        state.pathGrant = selected.grant || null;
-        $("open-error").textContent = "";
-        $("open-form").requestSubmit();
-      }
-    });
+    $("browse-button").addEventListener("click", browse);
 
     $("browse-multiple").addEventListener("click", async () => {
-      if (multiOpenRunning || state.openJobId) return;
+      if (multiOpenRunning || pickerBusy || !$("opener-progress").hidden) return;
       if ($("formdef-input").value.trim()) {
         $("open-error").textContent = "Open files individually when using an external FormDef.";
         return;
       }
+      pickerBusy = true;
       try {
         const selected = await nativeApi().pick_afp_file(true);
         if (!selected || selected.cancelled) return;
@@ -350,7 +379,7 @@
         await openMultiple(selected.files);
       } catch (err) {
         $("open-error").textContent = "Could not select files: " + err.message;
-      }
+      } finally { pickerBusy = false; }
     });
 
     $("browse-formdef-button").addEventListener("click", async () => {
@@ -358,35 +387,39 @@
       if (selected) { $("formdef-input").value = selected.path; state.formDefGrant = selected.grant || null; }
     });
 
-    $("path-input").addEventListener("input", () => { state.pathGrant = null; });
+    input.addEventListener("input", () => {
+      state.pathGrant = null;
+      input.removeAttribute("aria-invalid");
+      $("open-error").textContent = "";
+    });
     $("formdef-input").addEventListener("input", () => { state.formDefGrant = null; });
     $("open-new").addEventListener("click", () => {
-      document.querySelector('[data-tab="viewer"]').click();
-      $("opener").hidden = false;
-      $("viewer-empty").hidden = true;
-      if (nativeApi()) $("browse-button").click();
-      else $("path-input").focus();
+      if (nativeApi()) browse();
+      else { showOpener(); input.focus(); }
     });
     $("recent-open").addEventListener("click", () => {
-      document.querySelector('[data-tab="viewer"]').click();
-      $("opener").hidden = false;
-      $("viewer-empty").hidden = true;
-      $("recent-list").querySelector("button")?.focus();
+      showOpener();
+      ($("recent-list").querySelector("button") || input).focus();
     });
 
     $("open-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (!$("opener-progress").hidden || multiOpenRunning) return;
       if (documents.size >= 8) {
         $("open-error").textContent = "Close a document before opening another (maximum 8).";
         return;
       }
       const path = $("path-input").value.trim();
       if (!path) {
-        $("open-error").textContent = "Enter the path of an AFP file.";
+        $("open-error").textContent = "Enter the full path to an AFP file.";
+        input.setAttribute("aria-invalid", "true");
+        input.focus();
         return;
       }
       $("open-error").textContent = "";
+      input.removeAttribute("aria-invalid");
       $("open-button").disabled = true;
+      $("opener-back").disabled = true;
       $("opener-progress").hidden = false;
       $("opener-status").textContent = "Loading — preparing the document.";
       try {
@@ -408,9 +441,10 @@
         state.openJobId = result.job.id;
         pollJob(result.job.id);
       } catch (err) {
-        $("open-error").textContent = err.message;
-        $("open-button").disabled = false;
-        $("opener-progress").hidden = true;
+        $("open-error").textContent = "Could not open the file. " + err.message;
+        if (err.code === "invalid_path") input.setAttribute("aria-invalid", "true");
+        finishOpen();
+        $("open-error").focus();
       }
     });
 
@@ -550,6 +584,7 @@
 
   function finishOpen() {
     $("open-button").disabled = false;
+    $("opener-back").disabled = false;
     $("opener-progress").hidden = true;
     $("opener-bar").style.width = "0";
     state.openJobId = null;
@@ -590,6 +625,8 @@
         state.tab = button.dataset.tab;
         document.querySelectorAll(".tab").forEach((other) => {
           other.classList.toggle("is-active", other === button);
+          if (other === button) other.setAttribute("aria-current", "page");
+          else other.removeAttribute("aria-current");
         });
         document.querySelectorAll("[data-panel]").forEach((panel) => {
           panel.hidden = panel.dataset.panel !== state.tab;
@@ -1855,6 +1892,14 @@
 
   function initEngineering() {
     let jobId = null;
+    const operationSelect = $("engineering-operation");
+    const updateFields = () => {
+      $("engineering-form").querySelectorAll("[data-operations]").forEach(group => {
+        group.hidden = !group.dataset.operations.split(" ").includes(operationSelect.value);
+      });
+    };
+    operationSelect.addEventListener("change", updateFields);
+    updateFields();
     whenNativeReady(() => { $("engineering-browse").hidden = false; });
     $("engineering-browse").addEventListener("click", async () => {
       const operation = $("engineering-operation").value;
@@ -1874,9 +1919,15 @@
       const operation = $("engineering-operation").value;
       const rawPages = $("engineering-pages").value.trim();
       const pages = rawPages ? rawPages.split(",").map((value) => Number(value.trim()) - 1) : [state.page - 1];
-      let patches;
-      try { patches = JSON.parse($("engineering-patches").value); }
-      catch (err) { $("engineering-status").textContent = "Edit instructions must be valid JSON."; return; }
+      let patches = [];
+      if (operation === "edit") {
+        try { patches = JSON.parse($("engineering-patches").value); }
+        catch (err) {
+          $("engineering-status").textContent = "Check the edit instructions. They must be valid JSON.";
+          $("engineering-patches").focus();
+          return;
+        }
+      }
       const body = { operation: operation, path: $("engineering-path").value.trim(), pages: pages, patches: patches,
         document_number: Number($("engineering-document").value),
         merge_paths: $("engineering-merge").value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean) };

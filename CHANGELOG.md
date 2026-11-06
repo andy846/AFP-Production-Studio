@@ -2,6 +2,10 @@
 
 ## 0.3.0-dev — Unified Engine UAT
 
+- Clearer file opening, inline path errors and a return action that keeps
+  the current document and tab. Comparison and Engineering show the controls
+  needed for the current task, with report feedback next to the export buttons.
+
 - Compare two AFPs using unique page or text anchors and manual alignment.
   Inspect text, layout and media differences, render a selected pixel overlay,
   and export a local CSV or Excel comparison report.

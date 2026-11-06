@@ -6,15 +6,26 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
   const pair = ["left", "right"];
   const limit = 50;
   const status = text => { $("compare-status").textContent = text; };
+  const reportFeedback = text => { $("compare-export-feedback").textContent = text; };
+  const sourceControls = ["compare-left", "compare-right", "compare-codepage"];
   const stage = side => $("compare-stage-" + side);
   let id = null, jobId = null, busy = false, revision = 0, offset = 0, selected = null;
   let sources = [], anchors = [], items = [], workSources = [];
-  let generation = 0, refreshRequest = 0;
+  let generation = 0, refreshRequest = 0, exporting = false;
   const zoom = {left: 1, right: 1};
   const widths = {left: null, right: null};
   const syncedScroll = new Map();
   const url = () => "/api/comparisons/" + id;
   const post = (path, body) => api(path, {method: "POST", body});
+  const labels = {text: "Text", position: "Text position", size: "Page size",
+    medium_map: "medium map", form_map: "form map", media_type: "paper type",
+    media_destination: "paper destination", stock_name: "paper stock",
+    tray: "paper tray", duplex: "two-sided printing", copies: "copies"};
+  function label(value) {
+    const [kind, field] = value.split(".");
+    return field ? (kind === "requested" ? "Requested " : "Profile estimate: ") +
+      (labels[field] || field) : labels[value] || value;
+  }
 
   function syncFiles() {
     const files = documents();
@@ -23,7 +34,8 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
       const field = $("compare-" + side);
       const previous = field.value;
       field.replaceChildren(...files.map(doc => {
-        const option = el("option", doc.filename);
+        const duplicate = files.filter(other => other.filename === doc.filename).length > 1;
+        const option = el("option", duplicate ? doc.path : doc.filename);
         option.value = doc.document_id;
         option.title = doc.path;
         return option;
@@ -31,6 +43,9 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
       field.value = ids.has(previous) ? previous : files[index]?.document_id || "";
     }
     $("compare-run").disabled = busy || files.length < 2;
+    $("compare-open-source").hidden = files.length >= 2;
+    if (!id && !busy && !workSources.length)
+      status(files.length < 2 ? "Open two AFP files to compare." : "Choose the original and revised files, then select Compare files.");
     if ([...workSources, ...sources.map(doc => doc.id)].some(key => !ids.has(key))) {
       invalidate("A source file was closed. Open both files to compare again.");
     }
@@ -47,6 +62,7 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
     $("compare-rows").replaceChildren();
     for (const side of pair) stage(side).replaceChildren();
     clearOverlay();
+    reportFeedback("");
     status(message);
   }
 
@@ -92,12 +108,12 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
     const lines = [];
     for (const change of row.changes.filter(value => value.includes("."))) {
       const [kind, key] = change.split(".");
-      lines.push(kind + " " + key + ": " + (row.left_media[kind]?.[key] ?? "Unknown") +
+      lines.push(label(change) + ": " + (row.left_media[kind]?.[key] ?? "Unknown") +
                  " → " + (row.right_media[kind]?.[key] ?? "Unknown"));
     }
     if (row.changes.includes("size")) lines.push("Page size: " + row.left_size.join(" × ") + " → " + row.right_size.join(" × ") + " mm");
     if (row.changes.includes("text")) lines.push("Preview excerpts: " + row.left_excerpt + " → " + row.right_excerpt);
-    if (row.unknown.length) lines.push("Unverified: " + row.unknown.join(", "));
+    if (row.unknown.length) lines.push("Unverified: " + row.unknown.map(label).join(", "));
     if (!row.visual) lines.push("Preview pixels have not been compared for this pair.");
     root.replaceChildren(el("p", lines.join("\n") || "No differences in the checked fields."));
     for (const [index, side] of pair.entries()) {
@@ -149,7 +165,7 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
     const basis = {original: "Original page", text: "Decoded text", manual: "Manual", review: "Review pairing",
                    left_only: "Old only", right_only: "New only"};
     for (const row of items) {
-      const summary = [...row.changes, ...(row.visual?.changed_pixels ? ["preview pixels"] : []), ...(row.unknown.length ? ["unverified"] : [])];
+      const summary = [...row.changes.map(label), ...(row.visual?.changed_pixels ? ["Preview pixels"] : []), ...(row.unknown.length ? ["Needs review"] : [])];
       const button = el("button", (row.left ?? "—") + " ↔ " + (row.right ?? "—") + " · " +
                         basis[row.basis] + (summary.length ? " · " + summary.join(", ") : ""));
       button.type = "button";
@@ -184,6 +200,7 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
     if (busy) return;
     busy = true;
     $("compare-run").disabled = true;
+    sourceControls.forEach(control => { $(control).disabled = true; });
     const epoch = generation;
     status("Preparing comparison…");
     try {
@@ -203,6 +220,7 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
       jobId = null;
       workSources = [];
       busy = false;
+      sourceControls.forEach(control => { $(control).disabled = false; });
       $("compare-cancel").disabled = true;
       $("compare-run").disabled = documents().length < 2;
     }
@@ -235,25 +253,49 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
   }
 
   async function exportReport(format) {
-    if (!id || busy) return;
+    if (!id || busy || exporting) return;
+    exporting = true;
+    reportFeedback("");
+    const epoch = generation;
     const destination = url() + "/export";
     const reportRevision = revision;
-    let path = $("compare-output").value.trim();
-    if (!path && nativeApi()) path = await pickSavePath("AFP comparison." + format, format);
-    if (!path) { status("Choose a report output path."); return; }
-    const body = {path, format, revision: reportRevision, include_text: $("compare-include-text").checked};
     try {
+      let path = $("compare-output").value.trim();
+      if (!path && nativeApi()) {
+        path = await pickSavePath("AFP comparison." + format, format);
+        if (!path) { reportFeedback("Export cancelled."); return; }
+      }
+      if (epoch !== generation) return;
+      if (!path) {
+        reportFeedback("Enter the full path where you want to save the report.");
+        $("compare-output").focus();
+        return;
+      }
+      const body = {path, format, revision: reportRevision, include_text: $("compare-include-text").checked};
       let result;
       try { result = await post(destination, body); }
       catch (err) {
         if (err.code !== "overwrite_required") throw err;
-        if (!await confirmOverwrite(path.replace(/\.[^./\\]+$/, "") + "." + format)) return;
+        if (epoch !== generation) return;
+        if (!await confirmOverwrite(path.replace(/\.[^./\\]+$/, "") + "." + format)) {
+          reportFeedback("Export cancelled. The existing report was kept.");
+          return;
+        }
+        if (epoch !== generation) return;
         result = await post(destination, {...body, overwrite: true});
       }
-      status("Report written to " + result.path);
-    } catch (err) { showError(err); }
+      if (epoch === generation) reportFeedback("Report written to " + result.path);
+    } catch (err) {
+      if (epoch === generation) {
+        if (["source_changed", "comparison_not_found"].includes(err.code)) showError(err);
+        else reportFeedback(err.message);
+      }
+    } finally { exporting = false; }
   }
 
+  sourceControls.forEach(control => $(control).addEventListener("change", () => {
+    if (id) invalidate("Comparison inputs changed. Select Compare files to refresh the results.");
+  }));
   $("compare-run").addEventListener("click", () => {
     const [left, right] = pair.map(side => $("compare-" + side).value);
     if (!left || !right || left === right) { status("Choose two different AFP files."); return; }
@@ -271,6 +313,7 @@ window.initCompareWorkbench = function ({api, nativeApi, pickSavePath, documents
     try { await post("/api/jobs/" + jobId + "/cancel", {}); }
     catch (err) { showError(err); }
   });
+  $("compare-open-source").addEventListener("click", () => $("open-new").click());
   for (const [control, delta] of [["compare-prev", -limit], ["compare-next", limit]]) {
     $(control).addEventListener("click", () => { offset = Math.max(0, offset + delta); refresh().catch(showError); });
   }

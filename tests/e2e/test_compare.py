@@ -129,6 +129,13 @@ def test_compare_workbench_in_edge(tmp_path, monkeypatch):
             errors = []
             page.on("pageerror", lambda err: errors.append(str(err)))
             page.goto(url)
+            page.set_viewport_size({"width": 800, "height": 600})
+            page.locator('[data-tab="compare"]').click()
+            assert page.locator("#compare-run").is_disabled()
+            page.locator("#compare-open-source").click()
+            assert page.locator("#path-input").is_visible()
+            assert page.evaluate("() => document.documentElement.scrollWidth <= innerWidth")
+            page.set_viewport_size({"width": 1280, "height": 900})
             for index, path in enumerate(paths):
                 if index:
                     page.locator("#open-new").click()
@@ -155,8 +162,14 @@ def test_compare_workbench_in_edge(tmp_path, monkeypatch):
             output = tmp_path / "report.csv"
             page.locator("#compare-output").fill(str(output))
             page.locator("#compare-csv").click()
-            page.locator("#compare-status").get_by_text("Report written", exact=False).wait_for()
+            feedback = page.locator("#compare-export-feedback")
+            feedback.get_by_text("Report written", exact=False).wait_for()
             assert output.exists()
+            page.locator("#compare-csv").click()
+            page.locator("#overwrite-cancel").click()
+            feedback.get_by_text("The existing report was kept", exact=False).wait_for()
+            page.locator("#compare-left").select_option(label=paths[1].name)
+            assert not page.locator("#compare-results").is_visible()
             assert not errors
             browser.close()
     finally:

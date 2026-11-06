@@ -15,19 +15,19 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <span class="brand-text">
         <strong>AFP Production Studio</strong>
-        <em>media preflight &amp; print inspection</em>
+        <em>AFP viewing &amp; print inspection</em>
       </span>
     </div>
     <div class="masthead-doc" id="doc-chip" hidden>
       <span id="doc-name">no document</span>
-      <span class="status-pill" id="doc-status" data-status="unresolved">unresolved</span>
+      <span class="status-pill" id="doc-status" data-status="unresolved" title="Media preflight status">unresolved</span>
     </div>
     <div class="masthead-tools">
       <button type="button" class="primary" id="open-new">Open AFP</button>
       <button type="button" id="recent-open" title="Recent files (Ctrl+Shift+O)">Recent</button>
       <button type="button" id="shortcut-help" title="Show keyboard shortcuts">Shortcuts</button>
       <span class="privacy-note" title="Local processing; selected network shares may be read">
-        local processing &middot; selected shares
+        Processed locally
       </span>
       <span class="version">v{{ version }}</span>
     </div>
@@ -35,29 +35,34 @@
 
   <section class="opener" id="opener">
     <div class="opener-inner">
-      <div class="eyebrow">LOCAL PRODUCTION WORKSPACE <span>01 / OPEN JOB</span></div>
-      <h1>Open an AFP file</h1>
+      <div class="opener-heading">
+        <h1>Open an AFP file</h1>
+        <button type="button" id="opener-back" class="ghost" hidden>Back to document</button>
+      </div>
       <p class="opener-lead">
-        Select a local or authorised network file. Processing stays on this
-        computer and the source is never modified.
+        Preview pages, check print settings, or compare two versions. Your original file stays unchanged.
       </p>
       <form id="open-form" class="opener-form">
-        <label for="path-input">01 &nbsp; AFP document <span class="field-hint">Required</span></label>
+        <div class="opener-pickers" id="opener-pickers" hidden>
+          <button type="button" class="primary" id="browse-button" hidden>Choose AFP file…</button>
+          <button type="button" id="browse-multiple" hidden>Choose multiple…</button>
+        </div>
+        <label for="path-input" id="path-label">AFP file path</label>
         <div class="path-row">
           <input id="path-input" name="path" type="text" spellcheck="false"
-                 autocomplete="off" placeholder="C:\Users\...\job.afp">
-          <button type="button" class="ghost" id="browse-button"
-                  title="Choose an AFP file" hidden>Browse...</button>
-          <button type="button" class="ghost" id="browse-multiple" hidden>Choose multiple...</button>
+                 autocomplete="off" placeholder="C:\Jobs\example.afp" aria-describedby="path-help open-error">
+          <button type="submit" id="open-button" class="primary">Open path</button>
         </div>
-        <details class="open-options"><summary>Open options: printer profile, FormDef and parser</summary><div class="opener-row">
-          <label class="field"><span>Input format</span><select id="input-format"><option value="standard">Standard AFP (5A)</option><option value="rdw">RDW: one 5A field per record</option></select></label>
+        <p id="path-help" class="form-hint">Enter the full path to an AFP file on this computer or an authorised network share.</p>
+        <p class="opener-error" id="open-error" role="alert" tabindex="-1"></p>
+        <details class="open-options"><summary>Advanced open options</summary><div class="opener-row">
+          <label class="field"><span>File format</span><select id="input-format"><option value="standard">Standard AFP (default)</option><option value="rdw">AFP with RDW record headers</option></select></label>
           <label class="field">
-            <span>02 &nbsp; Printer profile <small>Optional</small></span>
-            <select id="profile-select"><option value="">none</option></select>
+            <span>Printer profile <small>Optional</small></span>
+            <select id="profile-select"><option value="">No printer profile</option></select>
           </label>
           <label class="field">
-            <span>03 &nbsp; External form definition <small>Optional</small></span>
+            <span>Form definition (FormDef) <small>Optional</small></span>
             <div class="path-row">
               <input id="formdef-input" type="text" spellcheck="false"
                      autocomplete="off" placeholder="optional .afp path">
@@ -70,16 +75,12 @@
             <span>Cross-check with the Java parser</span>
           </label>
         </div></details>
-        <div class="opener-actions">
-          <button type="submit" class="primary" id="open-button">Open file</button>
-          <span class="opener-error" id="open-error" role="alert"></span>
-        </div>
       </form>
       <section class="recent-files" aria-labelledby="recent-heading">
         <div class="recent-heading"><h2 id="recent-heading">Recent files</h2>
           <button type="button" id="recent-clear" class="ghost small">Clear history</button></div>
         <label><input type="checkbox" id="remember-recent" checked> Remember recent files on this computer</label>
-        <p class="panel-note">Paths and reading positions are stored locally. Recent files reopen without a printer profile, FormDef or Java cross-check; use Open options to apply them.</p>
+        <p class="form-hint">Recent files restore your page and zoom. To reuse print settings, select the file again with Advanced open options.</p>
         <div id="recent-list"><p class="empty-note">No recent files.</p></div>
       </section>
       <div class="opener-progress" id="opener-progress" hidden>
@@ -93,7 +94,7 @@
   <nav id="document-tabs" class="document-tabs" aria-label="Open documents"></nav>
   <nav class="tabs" id="tabs">
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
-    <button class="tab is-active" data-tab="viewer">Viewer</button>
+    <button class="tab is-active" data-tab="viewer" aria-current="page">Viewer</button>
     <button class="tab" data-tab="compare">Compare</button>
     <button class="tab" data-tab="structure">Structure</button>
     <button class="tab" data-tab="document-index">Document Index</button>
@@ -123,7 +124,7 @@
         <div id="page-thumbnails" class="page-thumbnails"></div>
       </section>
       <div class="tree-search">
-        <input id="search-input" type="search" placeholder="Search fields or text">
+        <input id="search-input" type="search" aria-label="Search fields or encoded text" placeholder="Search fields or text">
         <button type="button" id="preview-search-open" class="ghost small">Search preview text…</button>
       </div>
       <div class="search-results" id="search-results" hidden></div>
@@ -158,14 +159,16 @@
 
     <section class="panel main-panel" data-panel="compare" aria-label="Compare AFP" hidden>
       <div class="panel-head"><h2>Compare AFP</h2></div>
+      <p class="compare-intro">Choose the original file and the revised file. Review page pairs, then check the differences that matter.</p>
       <div class="compare-controls">
-        <label>Old AFP <select id="compare-left"></select></label>
-        <label>New AFP <select id="compare-right"></select></label>
-        <label>Text fallback <select id="compare-codepage"><option value="cp500">EBCDIC 500</option><option value="cp037">EBCDIC 037</option></select></label>
-        <button type="button" id="compare-run" class="primary">Compare</button>
+        <label>Original AFP <select id="compare-left"></select></label>
+        <label>Revised AFP <select id="compare-right"></select></label>
+        <details class="compare-options"><summary>Text decoding</summary><label>Fallback code page <select id="compare-codepage"><option value="cp500">EBCDIC 500 (default)</option><option value="cp037">EBCDIC 037</option></select></label></details>
+        <button type="button" id="compare-run" class="primary">Compare files</button>
         <button type="button" id="compare-cancel" disabled>Cancel</button>
       </div>
       <p id="compare-status" class="panel-note" role="status">Open two AFP files to compare.</p>
+      <button type="button" id="compare-open-source" class="ghost compare-open-source">Open an AFP file…</button>
       <div id="compare-results" class="compare-results" hidden>
         <div class="compare-controls">
           <label>Show <select id="compare-filter"><option value="all">All pages</option><option value="changed">Changes</option><option value="unmatched">Unpaired pages</option><option value="unverified">Unverified</option><option value="text">Text</option><option value="position">Position</option><option value="size">Page size</option><option value="media">Media settings</option><option value="visual">Preview pixels</option></select></label>
@@ -176,12 +179,6 @@
           <button type="button" id="compare-visual">Show pixel difference</button>
         </div>
         <div id="compare-rows" class="compare-rows" aria-label="Page pairs"></div>
-        <div class="compare-controls">
-          <label>Old anchor <input type="number" id="compare-anchor-left" min="1"></label>
-          <label>New anchor <input type="number" id="compare-anchor-right" min="1"></label>
-          <button type="button" id="compare-anchor-add">Pair pages</button>
-          <span id="compare-anchors" aria-label="Manual page anchors"></span>
-        </div>
         <div id="compare-row-detail" class="panel-note"></div>
         <div class="compare-panes">
           <div class="compare-side">
@@ -194,11 +191,24 @@
           </div>
         </div>
         <figure id="compare-overlay" hidden><figcaption id="compare-overlay-caption"></figcaption><img id="compare-overlay-image" alt="Preview pixel differences highlighted in magenta"></figure>
-        <div class="compare-controls">
-          <label>Report path <input id="compare-output" type="text" placeholder="Full output path"></label>
-          <label><input id="compare-include-text" type="checkbox"> Include preview text excerpts</label>
-          <button type="button" id="compare-csv">Export CSV</button>
-          <button type="button" id="compare-xlsx">Export Excel</button>
+        <details class="compare-section"><summary>Correct page pairing</summary>
+          <p class="form-hint">Use the page numbers from both files to confirm or correct a pair.</p>
+          <div class="compare-controls">
+            <label>Original page <input type="number" id="compare-anchor-left" min="1"></label>
+            <label>Revised page <input type="number" id="compare-anchor-right" min="1"></label>
+            <button type="button" id="compare-anchor-add">Pair pages</button>
+            <span id="compare-anchors" aria-label="Manual page anchors"></span>
+          </div>
+        </details>
+        <div class="compare-section compare-export">
+          <h3>Save comparison report</h3>
+          <div class="compare-controls">
+            <label>Report path <input id="compare-output" type="text" placeholder="Full output path"></label>
+            <label><input id="compare-include-text" type="checkbox"> Include preview text excerpts</label>
+            <button type="button" id="compare-csv">Export CSV</button>
+            <button type="button" id="compare-xlsx">Export Excel</button>
+          </div>
+          <p id="compare-export-feedback" class="panel-note" role="status"></p>
         </div>
         <p class="panel-note">Studio preview comparison only. Actual printer media is unknown.</p>
       </div>
@@ -252,15 +262,17 @@
           <select id="engineering-operation"><option value="copy">Byte-identical AFP copy</option><option value="edit">Edit IMM / same-length raw TLE</option><option value="extract">Extract one complete document</option><option value="merge">Merge self-contained documents</option><option value="png">PNG preview (one page)</option><option value="pdf">Raster PDF preview</option><option value="tiff">TIFF preview</option></select>
           <label for="engineering-path">New output file</label>
           <div class="path-row"><input id="engineering-path" required placeholder="Full path to a separate output file"><button type="button" id="engineering-browse" hidden>Save as…</button></div>
-          <label for="engineering-pages">Preview pages</label>
+          <div class="operation-fields" data-operations="png pdf tiff" hidden><label for="engineering-pages">Preview pages</label>
           <input id="engineering-pages" placeholder="Current page, or 1,2,3 (maximum 20)">
-          <label for="engineering-document">Document number to extract (one-based, from Document Index)</label>
+          </div><div class="operation-fields" data-operations="extract" hidden><label for="engineering-document">Document number to extract</label>
           <input id="engineering-document" type="number" min="1" value="1">
-          <label for="engineering-merge">Additional merge inputs (one permitted full path per line, maximum 19)</label>
+          <p class="form-hint">Use the document number shown in Document Index.</p>
+          </div><div class="operation-fields" data-operations="merge" hidden><label for="engineering-merge">Files to merge (one full path per line)</label>
           <textarea id="engineering-merge" rows="3" spellcheck="false"></textarea>
-          <label for="engineering-patches">Edit instructions (JSON array; original structured field offsets)</label>
+          </div><div class="operation-fields" data-operations="edit" hidden><label for="engineering-patches">Edit instructions (JSON)</label>
           <textarea id="engineering-patches" class="mono" rows="6" spellcheck="false" aria-describedby="engineering-help">[]</textarea>
           <p class="panel-note" id="engineering-help">IMM example: [{"offset":123,"medium_map":"MAP02"}]. Only known map names are allowed. Raw TLE edits preserve byte length and encoding bytes. Merge/extract supports complete standard-AFP document brackets with proven closure in the supported subset; inherited print-file state, resource-bearing jobs and name collisions are refused.</p>
+          </div>
           <div class="viewer-tools"><button type="submit" class="primary" id="engineering-run">Generate separate output</button><button type="button" id="engineering-cancel" disabled>Cancel task</button></div>
         </form>
         <p id="engineering-status" role="status" aria-live="polite">Ready.</p>

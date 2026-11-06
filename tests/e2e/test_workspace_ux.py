@@ -23,9 +23,10 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(url)
             splitter = page.locator("#tree-resize")
-            splitter.focus()
-            splitter.press("ArrowRight")
-            assert splitter.get_attribute("aria-valuenow") == "256"
+            assert not splitter.is_visible()
+            page.locator("#open-button").click()
+            assert page.locator("#path-input").get_attribute("aria-invalid") == "true"
+            assert page.locator("#path-input").evaluate("(input) => input === document.activeElement")
             for path in (first, second):
                 if path == second:
                     page.locator("#open-new").click()
@@ -34,10 +35,17 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
                 page.locator("#doc-name").get_by_text(path.name).wait_for()
                 page.locator("#page-holder svg").wait_for()
                 if path == first:
+                    splitter.press("ArrowRight")
+                    assert splitter.get_attribute("aria-valuenow") == "256"
                     page.locator("#page-number").fill("3")
                     page.locator("#page-number").dispatch_event("change")
                     page.wait_for_function("() => document.querySelector('#page-number').value === '3'")
             assert page.locator(".document-tab").count() == 2
+            page.locator('[data-tab="compare"]').click()
+            page.locator("#recent-open").click()
+            page.locator("#opener-back").click()
+            assert page.locator('[data-tab="compare"]').get_attribute("aria-current") == "page"
+            page.locator('[data-tab="viewer"]').click()
             page.locator(".document-tab").filter(has_text="first.afp").click()
             page.wait_for_function("() => document.querySelector('#page-number').value === '3'")
             page.locator("#viewer-stage").focus()

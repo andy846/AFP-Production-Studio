@@ -87,9 +87,12 @@ port to remember and no browser tab to find.
 The Windows UAT executable is unsigned. If Windows or your organisation's
 endpoint controls block it, follow your normal software approval process.
 
-Inside the window, **Browse** opens a native file dialog for the AFP
-file and for an external form definition, and the export button opens
-a native save dialog. The path boxes still accept typed paths.
+Select **Choose AFP file…** to open a file. If you already have a full
+file path, paste it into **AFP file path** and select **Open path**.
+Use **Advanced open options** when the job needs an external FormDef,
+printer profile or parser cross-check. Open a second AFP before selecting
+**Compare** to review differences between the files. In desktop mode,
+report export can use the native save dialog.
 
 Version 0.2.2 can open an AFP file directly when Studio is set as the
 default `.afp` app in Windows. See the Windows setup guide for details.
