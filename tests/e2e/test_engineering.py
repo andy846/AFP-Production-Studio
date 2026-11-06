@@ -46,3 +46,16 @@ def test_engineering_requires_csrf_and_protects_source_after_suffix(app_client, 
     endpoint = f"/api/documents/{document['document_id']}/engineering"
     assert app_client.post(endpoint, json={}).status_code == 403
     assert app_client.post(endpoint, json={"operation": "png", "path": str(path.with_suffix('.out'))}, headers=headers).status_code == 400
+
+
+def test_outputs_cannot_replace_another_open_document(app_client, tmp_path):
+    first, other = tmp_path / "first.afp", tmp_path / "other.afp"
+    first.write_bytes(synthetic.demo_job())
+    other.write_bytes(synthetic.demo_job())
+    original = other.read_bytes()
+    doc, headers = open_session(app_client, first)
+    open_session(app_client, other)
+    endpoint = f"/api/documents/{doc['document_id']}/engineering"
+    result = app_client.post(endpoint, json={"operation": "copy", "path": str(other), "overwrite": True}, headers=headers)
+    assert result.status_code == 400
+    assert other.read_bytes() == original

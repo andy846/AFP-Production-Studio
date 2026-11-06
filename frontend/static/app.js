@@ -28,6 +28,79 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  const documents = new Map();
+
+  function saveActiveDocument() {
+    if (!state.document) return;
+    const item = documents.get(state.document.document_id);
+    if (item) Object.assign(item, {
+      page: state.page, zoom: state.zoom, zoomFitted: state.zoomFitted,
+      tab: state.tab, preflight: state.preflight, report: state.report,
+      search: $("search-input").value
+    });
+  }
+
+  function renderDocumentTabs() {
+    const bar = $("document-tabs");
+    bar.textContent = "";
+    documents.forEach((item, id) => {
+      const button = el("button", "document-tab", item.summary.filename);
+      button.type = "button";
+      button.title = item.summary.path || item.summary.filename;
+      button.setAttribute("aria-current", String(state.document && state.document.document_id === id));
+      button.addEventListener("click", () => activateDocument(id));
+      bar.appendChild(button);
+    });
+    bar.hidden = documents.size === 0;
+  }
+
+  async function activateDocument(id) {
+    const item = documents.get(id);
+    if (!item) return;
+    saveActiveDocument();
+    state.document = item.summary;
+    state.page = item.page;
+    state.zoom = item.zoom;
+    state.zoomFitted = item.zoomFitted;
+    state.preflight = item.preflight;
+    state.report = item.report;
+    state.tree = null;
+    $("search-input").value = item.search || "";
+    $("search-results").textContent = "";
+    $("search-results").hidden = true;
+    $("opener").hidden = true;
+    $("doc-chip").hidden = false;
+    $("doc-name").textContent = item.summary.filename;
+    $("doc-status").textContent = item.summary.preflight_status;
+    $("doc-status").dataset.status = item.summary.preflight_status;
+    $("page-total").textContent = "/ " + item.summary.page_count;
+    $("page-number").max = item.summary.page_count;
+    renderDocumentTabs();
+    document.querySelector('[data-tab="' + item.tab + '"]').click();
+    await refreshAll();
+    if (state.document && state.document.document_id === id) showPage(item.page);
+  }
+
+  async function closeActiveDocument() {
+    if (!state.document) return;
+    const id = state.document.document_id;
+    try { await api("/api/documents/" + id, { method: "DELETE" }); }
+    catch (err) { setStatus(err.message); return; }
+    documents.delete(id);
+    state.document = null;
+    state.preflight = null;
+    state.report = null;
+    const next = documents.keys().next().value;
+    if (next) { await activateDocument(next); return; }
+    renderDocumentTabs();
+    $("opener").hidden = false;
+    $("page-holder").textContent = "";
+    $("tree").textContent = "";
+    $("details").textContent = "";
+    $("viewer-empty").hidden = true;
+    $("doc-chip").hidden = true;
+    setStatus("Document closed.");
+  }
 
   // The desktop shell exposes native file dialogs through a small
   // bridge. In a browser tab there is no bridge, so the code falls
@@ -122,7 +195,8 @@
         "Request failed (" + response.status + ").";
       const error = new Error(message);
       error.code = payload && payload.code;
-      if (error.code === "source_changed") invalidateDocument(message);
+      if (error.code === "source_changed" && state.document &&
+          path.startsWith("/api/documents/" + state.document.document_id)) invalidateDocument(message);
       throw error;
     }
     return payload;
@@ -183,6 +257,10 @@
 
     $("open-form").addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (documents.size >= 8) {
+        $("open-error").textContent = "Close a document before opening another (maximum 8).";
+        return;
+      }
       const path = $("path-input").value.trim();
       if (!path) {
         $("open-error").textContent = "Enter the path of an AFP file.";
@@ -230,6 +308,7 @@
   }
 
   function invalidateDocument(message) {
+    if (state.document) documents.delete(state.document.document_id);
     state.document = null;
     state.preflight = null;
     state.report = null;
@@ -245,6 +324,7 @@
     $("report-body").textContent = "";
     $("resources-table").textContent = "";
     $("open-error").textContent = message;
+    renderDocumentTabs();
     document.querySelector('[data-tab="viewer"]').click();
     setStatus(message);
   }
@@ -286,26 +366,13 @@
   }
 
   async function afterOpen(summary) {
-    const previous = state.document;
-    state.document = summary;
+    saveActiveDocument();
+    state.document = null;
+    documents.set(summary.document_id, {summary, page: 1, zoom: 1,
+      zoomFitted: true, tab: "viewer", preflight: null, report: null});
     documentIndexOffset = 0;
-    if (previous && previous.document_id !== summary.document_id) {
-      try { await api("/api/documents/" + previous.document_id, { method: "DELETE" }); } catch (err) { setStatus(err.message); }
-    }
-    $("opener").hidden = true;
-    $("tabs").hidden = false;
-    $("workspace").hidden = false;
-    $("doc-chip").hidden = false;
-    $("doc-name").textContent = summary.filename;
-    $("doc-status").textContent = summary.preflight_status;
-    $("doc-status").dataset.status = summary.preflight_status;
-    $("page-total").textContent = "/ " + summary.page_count;
-    $("page-number").max = summary.page_count;
-    setStatus(
-      "Opened " + summary.filename + " — " + summary.page_count + " page(s)."
-    );
-    await refreshAll();
-    showPage(1);
+    await activateDocument(summary.document_id);
+    setStatus("Opened " + summary.filename + " — " + summary.page_count + " page(s).");
   }
 
   async function refreshAll() {
@@ -492,6 +559,39 @@
     $("zoom-fit").addEventListener("click", fitPage);
   }
 
+  function initPanelResizing() {
+    const workspace = $("workspace");
+    [["tree-resize", "--tree-width", 160, 240, 1],
+     ["details-resize", "--details-width", 200, 300, -1]].forEach(([id, prop, min, initial, direction]) => {
+      const handle = $(id);
+      let width = initial;
+      const update = (value) => {
+        width = Math.max(min, Math.min(480, value));
+        workspace.style.setProperty(prop, width + "px");
+        handle.setAttribute("aria-valuenow", String(width));
+      };
+      handle.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        update(width + (event.key === "ArrowRight" ? 16 : -16) * direction);
+      });
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        const start = event.clientX, original = width;
+        handle.setPointerCapture(event.pointerId);
+        const move = (e) => update(original + (e.clientX - start) * direction);
+        const end = () => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", end);
+          handle.removeEventListener("pointercancel", end);
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", end);
+        handle.addEventListener("pointercancel", end);
+      });
+    });
+  }
+
   function setZoom(value) {
     state.zoom = Math.min(8, Math.max(0.1, value));
     $("zoom-readout").textContent = Math.round(state.zoom * 100) + "%";
@@ -571,7 +671,8 @@
       const response = await fetch(url);
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        if (data.code === "source_changed") invalidateDocument(data.error);
+        if (data.code === "source_changed" && requestId === pageRequest &&
+            state.document && state.document.document_id === documentId) invalidateDocument(data.error);
         throw new Error(data.error || "The page could not be rendered.");
       }
       const svg = await response.text();
@@ -613,6 +714,7 @@
 
   async function loadStructurePage(page) {
     if (!state.document) return;
+    const documentId = state.document.document_id;
     const url =
       "/api/documents/" +
       state.document.document_id +
@@ -620,6 +722,7 @@
       (page - 1);
     try {
       const payload = await api(url);
+      if (!state.document || state.document.document_id !== documentId || state.page !== page) return;
       renderStructure(payload.fields, payload.total);
     } catch (err) {
       setStatus(err.message);
@@ -678,9 +781,11 @@
 
   async function loadPreflight() {
     if (!state.document) return;
-    const url = "/api/documents/" + state.document.document_id + "/preflight";
+    const documentId = state.document.document_id;
+    const url = "/api/documents/" + documentId + "/preflight";
     try {
-      state.preflight = await api(url);
+      const result = await api(url);
+      if (state.document && state.document.document_id === documentId) state.preflight = result;
     } catch (err) {
       setStatus(err.message);
     }
@@ -1181,12 +1286,15 @@
       box.textContent = "";
       return;
     }
+    const documentId = state.document.document_id;
     try {
       const payload = await api(
         "/api/documents/" +
           state.document.document_id +
           "/search", { method: "POST", body: { q: query } }
       );
+      if (!state.document || state.document.document_id !== documentId ||
+          $("search-input").value.trim() !== query) return;
       box.textContent = "";
       const hits = [];
       payload.structure.forEach((row) => {
@@ -1250,6 +1358,7 @@
     }
     const doExport = async (format) => {
       if (!state.document) return;
+      const documentId = state.document.document_id;
       const suggested =
         state.document.path.replace(/\.[^.]+$/, "") + "." + format;
 
@@ -1269,7 +1378,7 @@
       if (!target) return;
       try {
         const result = await api(
-          "/api/documents/" + state.document.document_id + "/export",
+          "/api/documents/" + documentId + "/export",
           { method: "POST", body: { format: format, path: target } }
         );
         setStatus("Report written to " + result.path);
@@ -1278,7 +1387,7 @@
         const finalPath = target.replace(/\.[^./\\]+$/, "") + "." + format;
         if (!(await confirmOverwrite(finalPath))) { setStatus("Export cancelled."); return; }
         try {
-          const result = await api("/api/documents/" + state.document.document_id + "/export", {
+          const result = await api("/api/documents/" + documentId + "/export", {
             method: "POST", body: { format: format, path: target, overwrite: true }
           });
           setStatus("Report written to " + result.path);
@@ -1440,6 +1549,7 @@
     initTabs();
     initOpener();
     initViewer();
+    initPanelResizing();
     initSearch();
     initExport();
     initEngineering();
@@ -1457,25 +1567,28 @@
       try { await api("/api/documents/" + state.document.document_id); }
       catch (err) { if (err.code !== "source_changed") setStatus(err.message); }
     }, 10000);
-    $("close-document").addEventListener("click", async () => {
-      if (!state.document) return;
-      try {
-        await api("/api/documents/" + state.document.document_id, {
-          method: "DELETE"
-        });
-      } catch (err) {
-        setStatus(err.message);
+    $("close-document").addEventListener("click", closeActiveDocument);
+    document.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      const editable = event.target.closest("input, textarea, select, [contenteditable=true]");
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey && !event.altKey && key === "o") {
+        event.preventDefault(); $("open-new").click(); return;
       }
-      state.document = null;
-      state.preflight = null;
-      state.report = null;
-      $("opener").hidden = false;
-      $("page-holder").textContent = "";
-      $("tree").textContent = "";
-      $("details").textContent = "";
-      $("viewer-empty").hidden = true;
-      $("doc-chip").hidden = true;
-      setStatus("Document closed.");
+      if (event.ctrlKey && !event.altKey && key === "g" && state.document) {
+        event.preventDefault(); $("page-number").focus(); $("page-number").select(); return;
+      }
+      if (event.ctrlKey && !event.altKey && key === "f" && state.document) {
+        event.preventDefault(); $("search-input").focus(); return;
+      }
+      if (editable || !state.document || state.tab !== "viewer") return;
+      if (key === "pagedown") { event.preventDefault(); showPage(state.page + 1); }
+      else if (key === "pageup") { event.preventDefault(); showPage(state.page - 1); }
+      else if (event.ctrlKey && key === "home") { event.preventDefault(); showPage(1); }
+      else if (event.ctrlKey && key === "end") { event.preventDefault(); showPage(state.document.page_count); }
+      else if (event.ctrlKey && (key === "+" || key === "=")) { event.preventDefault(); setZoom(state.zoom * 1.25); }
+      else if (event.ctrlKey && key === "-") { event.preventDefault(); setZoom(state.zoom / 1.25); }
+      else if (!event.ctrlKey && !event.altKey && key === "f") { event.preventDefault(); fitPage(); }
     });
     setStatus("Ready. Enter the path of an AFP file to begin.");
   }

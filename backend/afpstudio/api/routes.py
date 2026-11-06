@@ -575,6 +575,9 @@ def export_report(document_id: str):
         target = safe_output_path(final_path, roots, source=document.path)
         for source in document.source_signatures:
             safe_output_path(target, roots, source=source)
+        for opened in _store().list():
+            for source in opened.source_signatures:
+                safe_output_path(target, roots, source=source)
     except (PathError, ValueError) as exc:
         return _error(str(exc), 400, "invalid_path")
     if target.exists() and payload.get("overwrite") is not True:
@@ -611,6 +614,9 @@ def export_report(document_id: str):
             for source in document.source_signatures:
                 if safe_output_path(target, roots, source=source) != target:
                     raise PathError("Output location changed before publishing.")
+            for opened in _store().list():
+                for source in opened.source_signatures:
+                    safe_output_path(target, roots, source=source)
         atomic_write_bytes(target, data, overwrite=payload.get("overwrite") is True, verify=verify)
     except SourceChangedError as exc:
         _store().close(document_id)
@@ -651,17 +657,28 @@ def engineering(document_id):
                 safe_output_path(target, _config().allowed_roots(), source=source)
         for source in document.source_signatures:
             target = safe_output_path(target, _config().allowed_roots(), source=source)
+        for opened in _store().list():
+            for source in opened.source_signatures:
+                safe_output_path(target, _config().allowed_roots(), source=source)
     except (ValueError, PathError) as exc:
         return _error(str(exc), 400, "invalid_path")
     overwrite = payload.get("overwrite") is True
     if target.exists() and not overwrite:
         return _error("Output exists; explicit replacement confirmation is required.", 409, "overwrite_required")
     store = _store()
+    output_roots = _config().allowed_roots()
     def work(context):
         context.progress(.05, "Preparing local output.")
+        def publish(action):
+            def guarded():
+                for opened in store.list():
+                    for source in opened.source_signatures:
+                        safe_output_path(target, output_roots, source=source)
+                return action()
+            return context.publish(guarded)
         if operation in ("copy", "edit"):
             result = write_document(document, target, [] if operation == "copy" else payload.get("patches", []),
-                overwrite=overwrite, check_cancelled=context.check_cancelled, publisher=context.publish)
+                overwrite=overwrite, check_cancelled=context.check_cancelled, publisher=publish)
         elif operation in ("merge", "extract"):
             temporary_sessions = []
             try:
@@ -669,14 +686,14 @@ def engineering(document_id):
                     temporary_sessions.append(store.open(path, check_cancelled=context.check_cancelled))
                 result = combine_documents([document] + temporary_sessions, target,
                     document_numbers=[payload.get("document_number", 1)] if operation == "extract" else None,
-                    overwrite=overwrite, check_cancelled=context.check_cancelled, publisher=context.publish)
+                    overwrite=overwrite, check_cancelled=context.check_cancelled, publisher=publish)
             finally:
                 for session_doc in temporary_sessions:
                     store.close(session_doc.document_id)
         else:
             result = convert_preview(document, target, operation, payload.get("pages", [0]),
                 dpi=payload.get("dpi", 144), overwrite=overwrite,
-                check_cancelled=context.check_cancelled, publisher=context.publish)
+                check_cancelled=context.check_cancelled, publisher=publish)
         return result
     try:
         job = _jobs().submit("engineering", "Generate local output", work)

@@ -80,6 +80,7 @@
     </div>
   </section>
 
+  <nav id="document-tabs" class="document-tabs" aria-label="Open documents"></nav>
   <nav class="tabs" id="tabs">
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer">Viewer</button>
@@ -105,6 +106,7 @@
         <input id="search-input" type="search" placeholder="Search fields or text">
       </div>
       <div class="search-results" id="search-results" hidden></div>
+      <div id="tree-resize" class="panel-resize panel-resize-right" role="separator" tabindex="0" aria-label="Resize document tree" aria-orientation="vertical" aria-valuemin="160" aria-valuemax="480" aria-valuenow="240"></div>
     </aside>
 
     <section class="panel main-panel" id="panel-viewer" data-panel="viewer">
@@ -125,7 +127,7 @@
           </span>
         </div>
       </div>
-      <div class="viewer-stage" id="viewer-stage">
+      <div class="viewer-stage" id="viewer-stage" tabindex="0" aria-label="AFP page viewer">
         <div class="viewer-empty" id="viewer-empty">No page selected.</div>
         <div class="page-holder" id="page-holder"></div>
       </div>
@@ -250,6 +252,7 @@
         <h2>Page details</h2>
       </div>
       <div class="details" id="details"></div>
+      <div id="details-resize" class="panel-resize panel-resize-left" role="separator" tabindex="0" aria-label="Resize page details" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="480" aria-valuenow="300"></div>
     </aside>
   </main>
 
