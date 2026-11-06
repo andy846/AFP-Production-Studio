@@ -25,7 +25,7 @@ from afpstudio.reports.control_report import ControlReport
 from afpstudio.reports.exports import export_csv, export_excel
 from afpstudio.reports.statistics import build_statistics
 from afpstudio.security.csrf import current_token, require_csrf
-from afpstudio.security.paths import PathError, resolve_under_roots, safe_output_path
+from afpstudio.security.paths import PathError, resolve_under_roots, resolve_selected_file, safe_output_path
 from afpstudio.security.paths import atomic_write_bytes
 from afpstudio.viewer.resources import resource_dependencies
 from afpstudio.viewer.jobs import JobQueueFull
@@ -144,15 +144,64 @@ def parser_status():
     return jsonify(_adapter().describe())
 
 
+@bp.route("/workspace", methods=["GET", "POST"])
+def workspace_settings():
+    store = current_app.extensions["studio"]["workspace"]
+    if request.method == "GET":
+        return jsonify(store.snapshot())
+    return _update_workspace()
+
+
+@require_csrf
+def _update_workspace():
+    try:
+        return jsonify(current_app.extensions["studio"]["workspace"].update(request.get_json(silent=True) or {}))
+    except ValueError as exc:
+        return _error(str(exc), 400, "invalid_request")
+    except OSError:
+        return _error("Could not save workspace settings.", 500, "settings_failed")
+
+
+@bp.post("/workspace/recent")
+@require_csrf
+def workspace_recent_record():
+    payload = request.get_json(silent=True) or {}
+    if set(payload) - {"document_id", "page", "zoom"} or not isinstance(payload.get("document_id"), str):
+        return _error("An open document is required.")
+    doc = _store().get(payload["document_id"])
+    if doc is None:
+        return _error("Unknown document.", 404)
+    try:
+        return jsonify(current_app.extensions["studio"]["workspace"].record(
+            doc, payload.get("page", 1), payload.get("zoom", 1)))
+    except (ValueError, SourceChangedError) as exc:
+        return _error(str(exc))
+    except OSError:
+        return _error("Could not save workspace settings.", 500, "settings_failed")
+
+
 @bp.post("/documents/open")
+@bp.post("/workspace/recent/open")
 @require_csrf
 def open_document():
     """Start indexing a local AFP file in the background."""
     payload = request.get_json(silent=True) or {}
     raw_path = payload.get("path")
+    recent = None
+    if request.path.endswith("/workspace/recent/open"):
+        if set(payload) != {"id"}:
+            return _error("A recent document ID is required.")
+        recent = current_app.extensions["studio"]["workspace"].find(payload["id"])
+        if recent is None:
+            return _error("Recent document not found.", 404, "recent_not_found")
+        raw_path = recent["path"]
     try:
         grant = payload.get("path_grant")
-        if grant:
+        if recent:
+            path = resolve_selected_file(raw_path)
+            if str(path) != raw_path:
+                raise PathError("The selected path changed. Select the file again.")
+        elif grant:
             path = current_app.extensions["studio"]["file_grants"].consume(grant, raw_path, "document")
         else:
             path = resolve_under_roots(raw_path, _config().allowed_roots())
@@ -196,7 +245,7 @@ def open_document():
 
     profile = _selected_profile(payload.get("profile"))
     use_java = bool(payload.get("use_java_parser"))
-    input_format = payload.get("input_format", "standard")
+    input_format = recent["input_format"] if recent else payload.get("input_format", "standard")
     if input_format not in ("standard", "rdw"):
         return _error("Unsupported input format.", 400, "invalid_request")
     if input_format == "rdw" and use_java:

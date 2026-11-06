@@ -24,6 +24,7 @@
     </div>
     <div class="masthead-tools">
       <button type="button" class="primary" id="open-new">Open AFP</button>
+      <button type="button" id="recent-open" title="Recent files (Ctrl+Shift+O)">Recent</button>
       <span class="privacy-note" title="Local processing; selected network shares may be read">
         local processing &middot; selected shares
       </span>
@@ -72,6 +73,13 @@
           <span class="opener-error" id="open-error" role="alert"></span>
         </div>
       </form>
+      <section class="recent-files" aria-labelledby="recent-heading">
+        <div class="recent-heading"><h2 id="recent-heading">Recent files</h2>
+          <button type="button" id="recent-clear" class="ghost small">Clear history</button></div>
+        <label><input type="checkbox" id="remember-recent" checked> Remember recent files on this computer</label>
+        <p class="panel-note">Paths and reading positions are stored locally. Recent files reopen without a printer profile, FormDef or Java cross-check; use Open options to apply them.</p>
+        <div id="recent-list"><p class="empty-note">No recent files.</p></div>
+      </section>
       <div class="opener-progress" id="opener-progress" hidden>
         <div class="bar"><span id="opener-bar"></span></div>
         <span id="opener-status" role="status" aria-live="polite">queued</span>

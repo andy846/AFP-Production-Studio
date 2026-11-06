@@ -41,6 +41,10 @@ button.primary { color: #fff; background: #126c5a; border-color: #126c5a; }
 button.primary:hover { background: #0c5144; }
 .opener-progress .bar { background: #e4ece8; }
 .opener-progress .bar span { background: #168068; }
+.recent-files { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+.recent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.recent-heading h2 { font-size: 16px; margin: 0; }
+.recent-file { display: block; width: 100%; margin: 4px 0; text-align: left; overflow-wrap: anywhere; }
 .tabs { background: #f5f8f6; padding: 0 14px; gap: 2px; overflow-x: auto; flex-shrink: 0; }
 .document-tabs { display: flex; overflow-x: auto; gap: 4px; background: #e4ede9; padding: 5px 14px 0; flex-shrink: 0; }
 .document-tab { flex: none; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 14px; }

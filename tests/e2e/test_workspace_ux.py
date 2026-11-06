@@ -47,6 +47,13 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
             page.locator("#close-document").click()
             page.locator("#doc-name").get_by_text("second.afp").wait_for()
             assert page.locator(".document-tab").count() == 1
+            page.locator("#close-document").click()
+            page.locator("#recent-list").get_by_text("first.afp", exact=False).click()
+            page.locator("#doc-name").get_by_text("first.afp").wait_for()
+            page.wait_for_function("() => document.querySelector('#page-number').value === '4'")
+            page.locator("#close-document").click()
+            page.locator("#recent-clear").click()
+            page.locator("#recent-list").get_by_text("No recent files.").wait_for()
             browser.close()
     finally:
         server.stop()

@@ -7,6 +7,10 @@
 - Viewer resolves supported embedded FOCA bitmap coded fonts from MCF format 1,
   including sectioned double-byte glyphs. Text extraction reports incomplete
   coverage when those glyphs lack a supported Unicode mapping.
+- Multiple open-document tabs, keyboard page navigation and adjustable side
+  panels. Local recent-file history and panel sizes survive application restarts;
+  history can be cleared or disabled. Reopening a recent file does not restore
+  an external FormDef, printer profile or Java comparison settings.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

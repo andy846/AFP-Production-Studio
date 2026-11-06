@@ -29,6 +29,81 @@
 
   const $ = (id) => document.getElementById(id);
   const documents = new Map();
+  let recentRestore = null;
+  let recentSaveTimer = null;
+  let recentSavePending = Promise.resolve();
+
+  function renderRecent(data) {
+    $("remember-recent").checked = data.remember;
+    const list = $("recent-list");
+    list.textContent = "";
+    if (!data.recent.length) list.appendChild(el("p", "empty-note", "No recent files."));
+    data.recent.forEach((item) => {
+      const button = el("button", "recent-file", item.path + "  ·  Page " + item.page);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        if (state.openJobId || documents.size >= 8) {
+          setStatus("Wait for the current open or close a document first.");
+          return;
+        }
+        $("open-error").textContent = "";
+        $("open-button").disabled = true;
+        $("opener-progress").hidden = false;
+        $("opener-status").textContent = "Loading — preparing the document.";
+        try {
+          const result = await api("/api/workspace/recent/open", {method: "POST", body: {id: item.id}});
+          recentRestore = {page: item.page, zoom: item.zoom};
+          state.openJobId = result.job.id;
+          pollJob(result.job.id);
+        } catch (err) {
+          $("open-error").textContent = err.message;
+          finishOpen();
+        }
+      });
+      list.appendChild(button);
+    });
+  }
+
+  function saveRecent(documentId, page, zoom) {
+    recentSavePending = recentSavePending.then(async () => {
+      try {
+        const data = await api("/api/workspace/recent", {method: "POST",
+          body: {document_id: documentId, page, zoom}});
+        renderRecent(data);
+      } catch (err) {
+        if (err.code !== "source_changed") setStatus("Recent files: " + err.message);
+      }
+    });
+    return recentSavePending;
+  }
+
+  function scheduleRecent() {
+    if (!state.document) return;
+    clearTimeout(recentSaveTimer);
+    const id = state.document.document_id, page = state.page, zoom = state.zoom;
+    recentSaveTimer = setTimeout(() => saveRecent(id, page, zoom), 500);
+  }
+
+  async function initWorkspacePreferences() {
+    try {
+      const data = await api("/api/workspace");
+      renderRecent(data);
+      window.dispatchEvent(new CustomEvent("workspace-preferences", {detail: data}));
+    } catch (err) { setStatus("Workspace settings: " + err.message); }
+    $("remember-recent").addEventListener("change", async (event) => {
+      const remember = event.target.checked;
+      clearTimeout(recentSaveTimer);
+      await recentSavePending;
+      try { renderRecent(await api("/api/workspace", {method: "POST", body: {remember}})); }
+      catch (err) { setStatus(err.message); }
+    });
+    $("recent-clear").addEventListener("click", async () => {
+      clearTimeout(recentSaveTimer);
+      await recentSavePending;
+      try { renderRecent(await api("/api/workspace", {method: "POST", body: {clear_recent: true}})); }
+      catch (err) { setStatus(err.message); }
+    });
+  }
 
   function saveActiveDocument() {
     if (!state.document) return;
@@ -38,6 +113,8 @@
       tab: state.tab, preflight: state.preflight, report: state.report,
       search: $("search-input").value
     });
+    clearTimeout(recentSaveTimer);
+    saveRecent(state.document.document_id, state.page, state.zoom);
   }
 
   function renderDocumentTabs() {
@@ -84,6 +161,8 @@
   async function closeActiveDocument() {
     if (!state.document) return;
     const id = state.document.document_id;
+    clearTimeout(recentSaveTimer);
+    await saveRecent(id, state.page, state.zoom);
     try { await api("/api/documents/" + id, { method: "DELETE" }); }
     catch (err) { setStatus(err.message); return; }
     documents.delete(id);
@@ -254,6 +333,12 @@
       if (nativeApi()) $("browse-button").click();
       else $("path-input").focus();
     });
+    $("recent-open").addEventListener("click", () => {
+      document.querySelector('[data-tab="viewer"]').click();
+      $("opener").hidden = false;
+      $("viewer-empty").hidden = true;
+      $("recent-list").querySelector("button")?.focus();
+    });
 
     $("open-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -348,6 +433,7 @@
         return;
       }
       if (job.state === "failed" || job.state === "cancelled") {
+        recentRestore = null;
         $("open-error").textContent =
           job.error || job.message || "The job did not finish.";
         finishOpen();
@@ -368,10 +454,13 @@
   async function afterOpen(summary) {
     saveActiveDocument();
     state.document = null;
-    documents.set(summary.document_id, {summary, page: 1, zoom: 1,
-      zoomFitted: true, tab: "viewer", preflight: null, report: null});
+    const restore = recentRestore;
+    recentRestore = null;
+    documents.set(summary.document_id, {summary, page: restore ? restore.page : 1, zoom: restore ? restore.zoom : 1,
+      zoomFitted: !restore, tab: "viewer", preflight: null, report: null});
     documentIndexOffset = 0;
     await activateDocument(summary.document_id);
+    scheduleRecent();
     setStatus("Opened " + summary.filename + " — " + summary.page_count + " page(s).");
   }
 
@@ -570,10 +659,22 @@
         workspace.style.setProperty(prop, width + "px");
         handle.setAttribute("aria-valuenow", String(width));
       };
+      window.addEventListener("workspace-preferences", (event) => {
+        update(event.detail[prop === "--tree-width" ? "tree_width" : "details_width"]);
+      });
+      let persistTimer;
+      const persist = () => {
+        clearTimeout(persistTimer);
+        persistTimer = setTimeout(() => {
+          const key = prop === "--tree-width" ? "tree_width" : "details_width";
+          api("/api/workspace", {method: "POST", body: {[key]: width}}).catch((err) => setStatus(err.message));
+        }, 300);
+      };
       handle.addEventListener("keydown", (event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
         update(width + (event.key === "ArrowRight" ? 16 : -16) * direction);
+        persist();
       });
       handle.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
@@ -584,6 +685,7 @@
           handle.removeEventListener("pointermove", move);
           handle.removeEventListener("pointerup", end);
           handle.removeEventListener("pointercancel", end);
+          persist();
         };
         handle.addEventListener("pointermove", move);
         handle.addEventListener("pointerup", end);
@@ -608,6 +710,7 @@
         );
       }
     }
+    scheduleRecent();
   }
 
   function fitPage() {
@@ -655,6 +758,7 @@
     const total = state.document.page_count || 1;
     const clamped = Math.min(Math.max(1, page), total);
     state.page = clamped;
+    scheduleRecent();
     $("page-number").value = String(clamped);
     $("viewer-empty").hidden = true;
     const holder = $("page-holder");
@@ -1550,6 +1654,7 @@
     initOpener();
     initViewer();
     initPanelResizing();
+    initWorkspacePreferences();
     initSearch();
     initExport();
     initEngineering();
@@ -1572,7 +1677,10 @@
       if (event.isComposing || event.defaultPrevented || document.querySelector("dialog[open]")) return;
       const editable = event.target.closest("input, textarea, select, [contenteditable=true]");
       const key = event.key.toLowerCase();
-      if (event.ctrlKey && !event.altKey && key === "o") {
+      if (event.ctrlKey && event.shiftKey && !event.altKey && key === "o") {
+        event.preventDefault(); $("recent-open").click(); return;
+      }
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && key === "o") {
         event.preventDefault(); $("open-new").click(); return;
       }
       if (event.ctrlKey && !event.altKey && key === "g" && state.document) {
