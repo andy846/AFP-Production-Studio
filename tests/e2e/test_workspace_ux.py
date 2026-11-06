@@ -1,5 +1,6 @@
 """Desktop-style workbench behaviour with synthetic local documents."""
 import hashlib
+import json
 import pytest
 
 
@@ -58,3 +59,75 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
     finally:
         server.stop()
     assert before == [hashlib.sha256(p.read_bytes()).digest() for p in (first, second)]
+
+
+def test_native_multi_open_queues_selected_synthetic_files(tmp_path, monkeypatch):
+    playwright = pytest.importorskip("playwright.sync_api")
+    from afpstudio.config import Config
+    from afpstudio.desktop import LocalServer
+    from afpstudio.testing import synthetic
+    monkeypatch.setenv("AFP_STUDIO_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AFP_STUDIO_ALLOWED_ROOTS", str(tmp_path))
+    paths = [tmp_path / "first.afp", tmp_path / "second.afp"]
+    for path in paths:
+        path.write_bytes(synthetic.demo_job())
+    server = LocalServer(Config())
+    url = server.start()
+    try:
+        with playwright.sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge")
+            page = browser.new_page()
+            files = json.dumps([{"path": str(path)} for path in paths])
+            page.add_init_script("""window.pywebview = {api: {
+                consume_startup_file: async () => null,
+                pick_afp_file: async (multiple) => multiple ?
+                    ({cancelled: false, files: FILES}) : ({cancelled: true})
+            }};""".replace("FILES", files))
+            page.goto(url)
+            page.locator("#browse-multiple").click()
+            page.get_by_text("2 of 2 files opened.").wait_for()
+            assert page.locator(".document-tab").count() == 2
+            page.locator(".document-tab").filter(has_text="first.afp").click()
+            page.locator("#doc-name").get_by_text("first.afp").wait_for()
+            browser.close()
+    finally:
+        server.stop()
+
+
+def test_cancelling_multi_open_keeps_completed_file_and_stops_queue(tmp_path, monkeypatch):
+    playwright = pytest.importorskip("playwright.sync_api")
+    from afpstudio.config import Config
+    from afpstudio.desktop import LocalServer
+    from afpstudio.testing import synthetic
+    monkeypatch.setenv("AFP_STUDIO_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("AFP_STUDIO_ALLOWED_ROOTS", str(tmp_path))
+    paths = [tmp_path / "first.afp", tmp_path / "second.afp"]
+    for path in paths:
+        path.write_bytes(synthetic.demo_job())
+    server = LocalServer(Config())
+    url = server.start()
+    try:
+        with playwright.sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge")
+            page = browser.new_page()
+            files = json.dumps([{"path": str(path)} for path in paths])
+            page.add_init_script("""window.pywebview = {api: {
+                consume_startup_file: async () => null,
+                pick_afp_file: async () => ({cancelled: false, files: FILES})
+            }};
+            const originalFetch = window.fetch;
+            window.fetch = async function(url, options) {
+                if (String(url).startsWith('/api/jobs/') && (!options || !options.method))
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                return originalFetch.apply(this, arguments);
+            };""".replace("FILES", files))
+            page.goto(url)
+            page.locator("#browse-multiple").click()
+            page.get_by_text("Opening file 1 of 2").wait_for()
+            page.wait_for_timeout(500)
+            page.locator("#cancel-open").click()
+            page.get_by_text("Cancelled. 1 of 2 files opened.").wait_for(timeout=15000)
+            assert page.locator(".document-tab").count() == 1
+            browser.close()
+    finally:
+        server.stop()

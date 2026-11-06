@@ -32,6 +32,8 @@
   let recentRestore = null;
   let recentSaveTimer = null;
   let recentSavePending = Promise.resolve();
+  let multiOpenRunning = false;
+  let multiOpenCancelled = false;
 
   function renderRecent(data) {
     $("remember-recent").checked = data.remember;
@@ -42,7 +44,7 @@
       const button = el("button", "recent-file", item.path + "  ·  Page " + item.page);
       button.type = "button";
       button.addEventListener("click", async () => {
-        if (state.openJobId || documents.size >= 8) {
+        if (multiOpenRunning || state.openJobId || documents.size >= 8) {
           setStatus("Wait for the current open or close a document first.");
           return;
         }
@@ -294,6 +296,7 @@
     let startupHandled = false;
     whenNativeReady(async () => {
       $("browse-button").hidden = false;
+      $("browse-multiple").hidden = false;
       $("browse-formdef-button").hidden = false;
       if (startupHandled) return;
       startupHandled = true;
@@ -316,6 +319,26 @@
         state.pathGrant = selected.grant || null;
         $("open-error").textContent = "";
         $("open-form").requestSubmit();
+      }
+    });
+
+    $("browse-multiple").addEventListener("click", async () => {
+      if (multiOpenRunning || state.openJobId) return;
+      if ($("formdef-input").value.trim()) {
+        $("open-error").textContent = "Open files individually when using an external FormDef.";
+        return;
+      }
+      try {
+        const selected = await nativeApi().pick_afp_file(true);
+        if (!selected || selected.cancelled) return;
+        if (!Array.isArray(selected.files) || !selected.files.length ||
+            selected.files.length > 8 - documents.size) {
+          $("open-error").textContent = "Close documents or select fewer files (maximum 8 open).";
+          return;
+        }
+        await openMultiple(selected.files);
+      } catch (err) {
+        $("open-error").textContent = "Could not select files: " + err.message;
       }
     });
 
@@ -381,6 +404,7 @@
     });
 
     $("cancel-open").addEventListener("click", async () => {
+      if (multiOpenRunning) { multiOpenCancelled = true; return; }
       if (!state.openJobId) return;
       try {
         await api("/api/jobs/" + state.openJobId + "/cancel", {
@@ -390,6 +414,70 @@
         setStatus(err.message);
       }
     });
+  }
+
+  async function openMultiple(files) {
+    multiOpenRunning = true;
+    multiOpenCancelled = false;
+    $("open-error").textContent = "";
+    $("open-button").disabled = true;
+    $("open-new").disabled = true;
+    $("recent-open").disabled = true;
+    $("browse-button").disabled = true;
+    $("browse-multiple").disabled = true;
+    const optionControls = ["input-format", "profile-select", "java-parser", "formdef-input", "browse-formdef-button"];
+    const previousDisabled = optionControls.map((id) => $(id).disabled);
+    optionControls.forEach((id) => { $(id).disabled = true; });
+    $("opener-progress").hidden = false;
+    let completed = 0;
+    const options = {input_format: $("input-format").value,
+      profile: $("profile-select").value || null,
+      use_java_parser: $("java-parser").checked};
+    try {
+      for (const item of files) {
+        if (multiOpenCancelled) break;
+        $("opener-status").textContent = "Opening file " + (completed + 1) + " of " + files.length;
+        const result = await api("/api/documents/open", {method: "POST", body: {
+          path: item.path, path_grant: item.grant || null,
+          ...options
+        }});
+        state.openJobId = result.job.id;
+        let job;
+        let cancelSent = false;
+        do {
+          if (multiOpenCancelled && !cancelSent) {
+            cancelSent = true;
+            try { await api("/api/jobs/" + state.openJobId + "/cancel", {method: "POST"}); }
+            catch (err) { if (err.code !== "not_cancellable") throw err; }
+          }
+          job = await api("/api/jobs/" + state.openJobId);
+          $("opener-bar").style.width = Math.round(((completed + job.progress) / files.length) * 100) + "%";
+          $("opener-status").textContent = "File " + (completed + 1) + " of " + files.length + " — " + job.state;
+          if (!["completed", "failed", "cancelled"].includes(job.state))
+            await new Promise((resolve) => setTimeout(resolve, 350));
+        } while (!["completed", "failed", "cancelled"].includes(job.state));
+        state.openJobId = null;
+        if (job.state === "cancelled") { multiOpenCancelled = true; break; }
+        if (job.state === "failed") throw new Error(job.error || job.message || "Open failed.");
+        await afterOpen(job.result);
+        completed += 1;
+        $("opener").hidden = false;
+      }
+      setStatus((multiOpenCancelled ? "Cancelled. " : "") + completed + " of " + files.length + " files opened.");
+    } catch (err) {
+      $("open-error").textContent = "Opened " + completed + " of " + files.length + ". " + err.message;
+      setStatus($("open-error").textContent);
+    } finally {
+      state.openJobId = null;
+      multiOpenRunning = false;
+      $("open-new").disabled = false;
+      $("recent-open").disabled = false;
+      $("browse-button").disabled = false;
+      $("browse-multiple").disabled = false;
+      optionControls.forEach((id, index) => { $(id).disabled = previousDisabled[index]; });
+      finishOpen();
+      if (!$("open-error").textContent && documents.size) $("opener").hidden = true;
+    }
   }
 
   function invalidateDocument(message) {

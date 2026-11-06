@@ -33,8 +33,8 @@ WINDOW_WIDTH = 1440
 WINDOW_HEIGHT = 900
 
 #: The smallest useful size, in logical pixels.
-WINDOW_MIN_WIDTH = 1024
-WINDOW_MIN_HEIGHT = 700
+WINDOW_MIN_WIDTH = 800
+WINDOW_MIN_HEIGHT = 600
 
 
 class DesktopBridge:
@@ -98,15 +98,29 @@ class DesktopBridge:
             return []
         return [str(item) for item in result]
 
-    def pick_afp_file(self) -> dict[str, Any]:
-        """Ask the operator to choose an AFP file to open."""
+    def pick_afp_file(self, multiple: bool = False) -> dict[str, Any]:
+        """Ask the operator to choose up to eight AFP files."""
+        if type(multiple) is not bool:
+            raise ValueError("Invalid selection mode.")
         paths = self._dialog(
             "open",
-            allow_multiple=False,
+            allow_multiple=multiple,
             file_types=("AFP files (*.afp)", "All files (*.*)"),
         )
         if not paths:
-            return {"cancelled": True, "path": ""}
+            return {"cancelled": True, "files": []} if multiple else {"cancelled": True, "path": ""}
+        if multiple:
+            if len(paths) > 8:
+                raise ValueError("Select no more than eight files at a time.")
+            # Validate the complete selection before issuing any capabilities.
+            if self._file_grants is not None:
+                for path in paths:
+                    resolve_selected_file(path)
+            files = [{"path": path} for path in paths]
+            if self._file_grants is not None:
+                for item in files:
+                    item["grant"] = self._file_grants.issue(item["path"], "document")
+            return {"cancelled": False, "files": files}
         result = {"cancelled": False, "path": paths[0]}
         if self._file_grants is not None:
             result["grant"] = self._file_grants.issue(paths[0], "document")

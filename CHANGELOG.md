@@ -11,6 +11,8 @@
   panels. Local recent-file history and panel sizes survive application restarts;
   history can be cleared or disabled. Reopening a recent file does not restore
   an external FormDef, printer profile or Java comparison settings.
+- Windows native multi-select opens up to eight documents sequentially with
+  independent one-use file grants, progress and cancellation.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

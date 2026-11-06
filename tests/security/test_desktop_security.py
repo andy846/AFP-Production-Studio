@@ -143,6 +143,38 @@ def test_native_file_dialog_issues_a_purpose_bound_grant(tmp_path):
     assert grants.consume(result["grant"], result["path"], "formdef") == source.resolve()
 
 
+def test_multiple_selection_grants_are_one_use_and_file_specific(tmp_path):
+    from afpstudio.security.paths import FileGrants
+    files = [tmp_path / "one.afp", tmp_path / "two.afp"]
+    for path in files:
+        path.write_bytes(b"synthetic")
+    grants = FileGrants()
+    bridge = DesktopBridge(file_grants=grants)
+    window = _FakeWindow(tuple(str(path) for path in files))
+    bridge.attach(window)
+    result = bridge.pick_afp_file(multiple=True)
+    assert [item["path"] for item in result["files"]] == list(map(str, files))
+    first, second = result["files"]
+    with pytest.raises(PathError):
+        grants.consume(first["grant"], second["path"], "document")
+    assert grants.consume(second["grant"], second["path"], "document") == files[1].resolve()
+
+
+def test_multi_picker_cancel_does_not_issue_grants():
+    bridge = DesktopBridge()
+    bridge.attach(_FakeWindow(()))
+    assert bridge.pick_afp_file(multiple=True) == {"cancelled": True, "files": []}
+    with pytest.raises(ValueError):
+        bridge.pick_afp_file(multiple="true")
+
+
+def test_multiple_selection_rejects_over_eight_files(tmp_path):
+    bridge = DesktopBridge()
+    bridge.attach(_FakeWindow(tuple(str(tmp_path / f"{i}.afp") for i in range(9))))
+    with pytest.raises(ValueError):
+        bridge.pick_afp_file(multiple=True)
+
+
 def test_a_chosen_export_path_still_cannot_overwrite_the_source(tmp_path):
     root = tmp_path
     source = root / "job.afp"
