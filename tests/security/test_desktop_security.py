@@ -52,6 +52,7 @@ def test_the_bridge_offers_no_way_to_open_a_document():
         "consume_startup_file",
         "pick_afp_file",
         "pick_form_definition",
+        "pick_report_folder",
         "save_report_file",
     ]
 
@@ -141,6 +142,21 @@ def test_native_file_dialog_issues_a_purpose_bound_grant(tmp_path):
     result = bridge.pick_form_definition()
     assert result["path"] == str(source)
     assert grants.consume(result["grant"], result["path"], "formdef") == source.resolve()
+
+
+def test_native_report_folder_selection_is_one_use_and_purpose_bound(tmp_path):
+    from afpstudio.security.paths import FileGrants
+
+    grants = FileGrants()
+    bridge = DesktopBridge(_FakeWindow((str(tmp_path),)), file_grants=grants)
+    selection = bridge.pick_report_folder()
+    assert not selection["cancelled"]
+    assert grants.consume(selection["grant"], selection["path"], "folder-report") == tmp_path.resolve()
+    with pytest.raises(PathError):
+        grants.consume(selection["grant"], selection["path"], "folder-report")
+    selection = bridge.pick_report_folder()
+    with pytest.raises(PathError):
+        grants.consume(selection["grant"], selection["path"], "document")
 
 
 def test_multiple_selection_grants_are_one_use_and_file_specific(tmp_path):

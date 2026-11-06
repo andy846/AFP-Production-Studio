@@ -50,6 +50,29 @@ def resolve_selected_file(raw) -> Path:
         raise PathError(f"File or network share is unavailable: {exc}") from exc
 
 
+def resolve_report_folder(raw, roots: list[Path] | None = None) -> Path:
+    """Resolve an absolute directory selected natively or under allowed roots."""
+    if not isinstance(raw, str):
+        raise PathError("A folder path is required.")
+    text = _validate_input(raw)
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        raise PathError("Enter the full folder path.")
+    if roots is not None and text.startswith(("\\\\", "//")) and not any(
+        str(root).startswith(("\\\\", "//")) for root in roots
+    ):
+        raise PathError("Network folder is outside the permitted directories.")
+    try:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_dir():
+            raise PathError("Select a readable folder.")
+    except OSError as exc:
+        raise PathError("The folder is unavailable or access was denied.") from exc
+    if roots is not None and not any(_is_within(resolved, root) for root in roots):
+        raise PathError("Folder is outside the permitted directories.")
+    return resolved
+
+
 class FileGrants:
     """Single-use capabilities issued only after a native dialog selection."""
 
@@ -58,7 +81,7 @@ class FileGrants:
         self._tokens = {}
 
     def issue(self, raw, purpose):
-        path = resolve_selected_file(raw)
+        path = resolve_report_folder(raw) if purpose == "folder-report" else resolve_selected_file(raw)
         token = secrets.token_urlsafe(32)
         with self._lock:
             self._tokens[token] = (path, purpose)
@@ -71,7 +94,7 @@ class FileGrants:
             grant = self._tokens.pop(token, None)
         if not grant or grant[1] != purpose:
             raise PathError("File selection has expired; choose it again.")
-        path = resolve_selected_file(raw)
+        path = resolve_report_folder(raw) if purpose == "folder-report" else resolve_selected_file(raw)
         if path != grant[0]:
             raise PathError("File selection does not match the requested path.")
         return path

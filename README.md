@@ -98,6 +98,13 @@ In Viewer, use **←** and **→** to turn pages. The **Dark mode** button
 switches the workspace appearance and remembers your choice on this
 installation. AFP page previews keep their original colors.
 
+**Production report → Folder report (Excel)** scans the `.afp` files
+directly inside a folder. Choose an Excel destination to get folder totals and
+one row per file for AFP pages, estimated sheets and named page groups (BNG).
+An unknown count stays unknown; the workbook also shows the subtotal of known
+counts. Page groups are not confirmed mailpieces. Optional settings include a
+shared external FormDef, printer profile and RDW input format.
+
 Version 0.2.2 can open an AFP file directly when Studio is set as the
 default `.afp` app in Windows. See the Windows setup guide for details.
 

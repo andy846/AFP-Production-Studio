@@ -28,9 +28,10 @@ from afpstudio.printer_profiles.schema import ProfileError
 from afpstudio.reports.control_report import ControlReport
 from afpstudio.reports.exports import export_csv, export_excel
 from afpstudio.reports.statistics import build_statistics
+from afpstudio.reports.folder import run_folder_report
 from afpstudio.security.csrf import current_token, require_csrf
 from afpstudio.security.paths import PathError, resolve_under_roots, resolve_selected_file, safe_output_path
-from afpstudio.security.paths import atomic_write_bytes
+from afpstudio.security.paths import atomic_write_bytes, resolve_report_folder
 from afpstudio.viewer.resources import resource_dependencies
 from afpstudio.viewer.jobs import JobQueueFull
 from afpstudio.viewer.renderer import RenderError, TextSearchReplay
@@ -1061,6 +1062,57 @@ def export_comparison(key):
     except OSError:
         return _error("Could not write the comparison report.", 500, "io_error")
     return jsonify({"path": str(target), "bytes": len(data)})
+
+
+@bp.post("/reports/folder")
+@require_csrf
+def folder_production_report():
+    payload = request.get_json(silent=True) or {}
+    input_format = payload.get("input_format", "standard")
+    if input_format not in ("standard", "rdw"):
+        return _error("Select a supported AFP input format.")
+    profile_name = payload.get("profile")
+    if profile_name is not None and not isinstance(profile_name, str):
+        return _error("Select a valid printer profile.")
+    profile = _selected_profile(profile_name)
+    if profile_name and profile is None:
+        return _error("Unknown printer profile.")
+    config = _config()
+    roots = config.allowed_roots()
+    overwrite = payload.get("overwrite") is True
+    try:
+        output = payload.get("output")
+        if not isinstance(output, str) or Path(output.strip()).suffix.lower() != ".xlsx":
+            return _error("Enter an Excel destination ending in .xlsx.")
+        target = safe_output_path(output, roots)
+        if target.suffix.lower() != ".xlsx" or not target.parent.is_dir() or target.is_dir():
+            return _error("Choose an Excel file in an existing permitted directory.")
+        if target.exists() and not overwrite:
+            return _error("Output file already exists; confirmation required.", 409, "overwrite_required")
+        grants = current_app.extensions["studio"]["file_grants"]
+        raw = payload.get("folder")
+        grant = payload.get("folder_grant")
+        folder = grants.consume(grant, raw, "folder-report") if grant is not None else resolve_report_folder(raw, roots)
+        form_defs = []
+        if payload.get("form_def"):
+            raw = payload["form_def"]
+            grant = payload.get("form_def_grant")
+            form_def = grants.consume(grant, raw, "formdef") if grant is not None else resolve_under_roots(raw, roots)
+            if form_def.stat().st_size > config.max_local_file_bytes:
+                return _error("The FormDef exceeds the configured byte limit.", 413)
+            form_defs.append(form_def)
+    except (OSError, PathError, ValueError, RuntimeError) as exc:
+        return _error(str(exc), 400, "invalid_path")
+
+    store = _store()
+    try:
+        job = _jobs().submit("folder-report", "Generate folder production report",
+                             lambda context: run_folder_report(
+                                 folder, target, roots, store, context, profile=profile, form_defs=form_defs,
+                                 input_format=input_format, max_bytes=config.max_local_file_bytes, overwrite=overwrite))
+    except JobQueueFull as exc:
+        return _error(str(exc), 429, "job_queue_full")
+    return jsonify({"job": job.as_dict()})
 
 
 @bp.post("/batch/preflight")

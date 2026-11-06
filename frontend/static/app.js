@@ -1857,8 +1857,7 @@
   /* export                                                              */
   /* ------------------------------------------------------------------ */
 
-  function initExport() {
-    function confirmOverwrite(path) {
+  function confirmOverwrite(path) {
       const dialog = $("overwrite-dialog");
       $("overwrite-path").textContent = path;
       return new Promise((resolve) => {
@@ -1868,7 +1867,88 @@
         dialog.oncancel = (event) => { event.preventDefault(); finish(false); };
         dialog.showModal();
       });
-    }
+  }
+
+  function initFolderReport() {
+    const dialog = $("folder-report-dialog");
+    const source = $("folder-report-source"), output = $("folder-report-output");
+    const formDef = $("folder-report-formdef"), status = $("folder-report-status");
+    const cancel = $("folder-report-cancel"), run = $("folder-report-run"), close = $("folder-report-close");
+    let folderGrant = null, formDefGrant = null, jobId = null, busy = false;
+    $("folder-report-open").addEventListener("click", () => dialog.showModal());
+    close.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
+    source.addEventListener("input", () => { folderGrant = null; });
+    formDef.addEventListener("input", () => { formDefGrant = null; });
+    whenNativeReady(() => {
+      $("folder-report-browse").hidden = !nativeApi()?.pick_report_folder;
+      $("folder-report-save").hidden = false;
+      $("folder-report-formdef-browse").hidden = false;
+    });
+    $("folder-report-browse").addEventListener("click", async () => {
+      const selected = await pickFile("pick_report_folder");
+      if (selected) { source.value = selected.path; folderGrant = selected.grant || null; }
+    });
+    $("folder-report-save").addEventListener("click", async () => {
+      const selected = await pickSavePath("AFP Production Report.xlsx", "xlsx");
+      if (selected) output.value = selected;
+    });
+    $("folder-report-formdef-browse").addEventListener("click", async () => {
+      const selected = await pickFile("pick_form_definition");
+      if (selected) { formDef.value = selected.path; formDefGrant = selected.grant || null; }
+    });
+    cancel.addEventListener("click", async () => {
+      if (!jobId) return;
+      try {
+        await api("/api/jobs/" + jobId + "/cancel", {method: "POST", body: {}});
+        cancel.disabled = true;
+        status.textContent = "Cancellation requested…";
+      } catch (err) { status.textContent = err.message; }
+    });
+    $("folder-report-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      if (busy) return;
+      busy = run.disabled = close.disabled = true;
+      const body = {folder: source.value.trim(), output: output.value.trim(),
+        folder_grant: folderGrant, form_def: formDef.value.trim(), form_def_grant: formDefGrant,
+        input_format: $("folder-report-format").value, profile: $("folder-report-profile").value};
+      const start = overwrite => api("/api/reports/folder", {method: "POST", body: {...body, overwrite}});
+      status.textContent = "Preparing report…";
+      try {
+        let reply;
+        try { reply = await start(false); }
+        catch (err) {
+          if (err.code !== "overwrite_required") throw err;
+          if (!await confirmOverwrite(body.output)) { status.textContent = "Existing report kept."; return; }
+          reply = await start(true);
+        }
+        folderGrant = formDefGrant = null;
+        jobId = reply.job.id;
+        cancel.hidden = false;
+        cancel.disabled = false;
+        while (true) {
+          const job = await api("/api/jobs/" + jobId);
+          if (job.state === "completed") {
+            const result = job.result;
+            status.textContent = "Excel report saved for " + result.files + " AFP files" +
+              (result.incomplete_files ? " (" + result.incomplete_files + " without a complete page count)" : "") +
+              ": " + result.path;
+            break;
+          }
+          status.textContent = job.error || job.message || "Analysing AFP files…";
+          if (job.state === "failed" || job.state === "cancelled") break;
+          await new Promise(resolve => setTimeout(resolve, 350));
+        }
+      } catch (err) { status.textContent = err.message; }
+      finally {
+        jobId = null;
+        cancel.hidden = true;
+        busy = run.disabled = close.disabled = false;
+      }
+    });
+  }
+
+  function initExport() {
     const doExport = async (format) => {
       if (!state.document) return;
       const documentId = state.document.document_id;
@@ -2066,6 +2146,7 @@
         option.value = profile.name;
         option.textContent = profile.printer_profile;
         select.appendChild(option);
+        $("folder-report-profile").appendChild(option.cloneNode(true));
       });
     } catch (err) {
       setStatus(err.message);
@@ -2103,6 +2184,7 @@
       }});
     initPreviewSearch();
     initExport();
+    initFolderReport();
     initEngineering();
     initBatch();
     initJournal();

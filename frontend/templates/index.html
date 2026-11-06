@@ -299,6 +299,7 @@
       <div class="panel-head">
         <h2>Production report</h2>
         <div class="viewer-tools">
+          <button class="small" type="button" id="folder-report-open">Folder report (Excel)</button>
           <button class="ghost small" id="export-csv">Export CSV</button>
           <button class="ghost small" id="export-excel">Export Excel</button>
         </div>
@@ -389,6 +390,41 @@
     <span id="status-cache"></span>
   </footer>
 
+  <dialog id="folder-report-dialog" aria-labelledby="folder-report-title">
+    <h2 id="folder-report-title">Folder production report</h2>
+    <p>Count AFP pages, estimated sheets and named page groups for each .afp file directly in a folder.</p>
+    <form id="folder-report-form" class="engineering-form">
+      <label for="folder-report-source">AFP folder</label>
+      <div class="path-row">
+        <input id="folder-report-source" type="text" required spellcheck="false" placeholder="Full folder path">
+        <button type="button" id="folder-report-browse" hidden>Choose folder…</button>
+      </div>
+      <label for="folder-report-output">Save Excel report to</label>
+      <div class="path-row">
+        <input id="folder-report-output" type="text" required spellcheck="false" placeholder="Full path ending in .xlsx">
+        <button type="button" id="folder-report-save" hidden>Choose destination…</button>
+      </div>
+      <details class="open-options">
+        <summary>Optional AFP settings</summary>
+        <div class="opener-row">
+          <label class="field"><span>File format</span><select id="folder-report-format"><option value="standard">Standard AFP</option><option value="rdw">AFP with RDW headers</option></select></label>
+          <label class="field"><span>Printer profile</span><select id="folder-report-profile"><option value="">No printer profile</option></select></label>
+        </div>
+        <label for="folder-report-formdef">Shared external FormDef</label>
+        <div class="path-row">
+          <input id="folder-report-formdef" type="text" spellcheck="false" placeholder="Optional full file path">
+          <button type="button" id="folder-report-formdef-browse" hidden>Browse…</button>
+        </div>
+      </details>
+      <p class="form-hint">Unknown sheet counts stay unknown. A named page group is not a confirmed mailpiece.</p>
+      <p id="folder-report-status" role="status" aria-live="polite">Ready.</p>
+      <div class="dialog-actions">
+        <button type="button" id="folder-report-close">Close</button>
+        <button type="button" id="folder-report-cancel" hidden>Cancel report</button>
+        <button type="submit" class="primary" id="folder-report-run">Generate Excel report</button>
+      </div>
+    </form>
+  </dialog>
   <script src="{{ url_for('static', filename='compare.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

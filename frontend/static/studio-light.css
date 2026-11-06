@@ -144,6 +144,9 @@ dialog h2 { margin: 0; font: 22px var(--serif); }
 .shortcut-list dd { margin: 0; }
 .overwrite-path { overflow-wrap: anywhere; padding: 10px; background: var(--bg-raised); font: 12px var(--mono); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+#folder-report-dialog { width: min(660px, calc(100vw - 32px)); }
+#folder-report-dialog .dialog-actions { flex-wrap: wrap; }
+#folder-report-status { overflow-wrap: anywhere; margin: 0; }
 
 /* Theme the workspace, not the paper or any rendered document pixels. */
 :root[data-theme="dark"] {

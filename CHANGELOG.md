@@ -2,6 +2,10 @@
 
 ## 0.3.0-dev — Unified Engine UAT
 
+- Folder production Excel report with per-file and folder totals for AFP pages,
+  estimated sheets and named page groups. Unreadable inputs and unknown
+  quantities remain visible.
+
 - Added a persistent Dark mode toggle. In Viewer, Left and Right Arrow
   turn pages directly without requiring focus on the preview.
 

@@ -90,9 +90,7 @@ class DesktopBridge:
             ) from exc
         # FileDialog is the current spelling; the older OPEN_DIALOG and
         # SAVE_DIALOG constants are deprecated.
-        dialog_type = (
-            webview.FileDialog.SAVE if kind == "save" else webview.FileDialog.OPEN
-        )
+        dialog_type = getattr(webview.FileDialog, kind.upper())
         result = window.create_file_dialog(dialog_type, **kwargs)
         if not result:
             return []
@@ -138,6 +136,16 @@ class DesktopBridge:
         result = {"cancelled": False, "path": paths[0]}
         if self._file_grants is not None:
             result["grant"] = self._file_grants.issue(paths[0], "formdef")
+        return result
+
+    def pick_report_folder(self) -> dict[str, Any]:
+        """Authorize one folder for the non-recursive production report."""
+        paths = self._dialog("folder", allow_multiple=False)
+        if not paths:
+            return {"cancelled": True, "path": ""}
+        result = {"cancelled": False, "path": paths[0]}
+        if self._file_grants is not None:
+            result["grant"] = self._file_grants.issue(paths[0], "folder-report")
         return result
 
     def save_report_file(self, default_name: str = "", file_type: str = "csv") -> dict[str, Any]:
