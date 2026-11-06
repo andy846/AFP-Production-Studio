@@ -746,6 +746,7 @@
     $("zoom-fit").addEventListener("click", fitPage);
     $("zoom-width").addEventListener("click", () => setFitMode("width"));
     $("zoom-actual").addEventListener("click", () => setZoom(1));
+    initViewerPan();
     $("viewer-stage").addEventListener("wheel", (event) => {
       if (!event.ctrlKey || !state.document) return;
       event.preventDefault();
@@ -760,6 +761,51 @@
           if (state.fitMode !== "manual") applyFit();
         });
       }).observe($("viewer-stage"));
+    }
+  }
+
+  function initViewerPan() {
+    const stage = $("viewer-stage");
+    let armed = false;
+    let pan = null;
+    const stop = () => {
+      const pointerId = pan?.id;
+      pan = null;
+      stage.classList.remove("is-panning");
+      if (pointerId !== undefined && stage.hasPointerCapture(pointerId))
+        stage.releasePointerCapture(pointerId);
+    };
+    const reset = () => {
+      armed = false;
+      stage.classList.remove("can-pan");
+      stop();
+    };
+    stage.addEventListener("keydown", (event) => {
+      if (event.target !== stage || event.code !== "Space" || event.isComposing ||
+          event.altKey || event.ctrlKey || event.metaKey || !$("page-holder").querySelector("svg") ||
+          !$("opener").hidden) return;
+      event.preventDefault();
+      armed = true;
+      stage.classList.add("can-pan");
+    });
+    window.addEventListener("keyup", (event) => { if (event.code === "Space") reset(); });
+    window.addEventListener("blur", reset);
+    stage.addEventListener("blur", reset);
+    stage.addEventListener("pointerdown", (event) => {
+      if (!armed || event.button !== 0 || !$("opener").hidden) return;
+      event.preventDefault();
+      pan = {id: event.pointerId, x: event.clientX, y: event.clientY,
+        left: stage.scrollLeft, top: stage.scrollTop};
+      stage.setPointerCapture(event.pointerId);
+      stage.classList.add("is-panning");
+    });
+    stage.addEventListener("pointermove", (event) => {
+      if (!pan || event.pointerId !== pan.id) return;
+      stage.scrollLeft = pan.left + pan.x - event.clientX;
+      stage.scrollTop = pan.top + pan.y - event.clientY;
+    });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+      stage.addEventListener(type, (event) => { if (pan?.id === event.pointerId) stop(); });
     }
   }
 

@@ -134,6 +134,16 @@ def test_viewer_fit_modes_shortcuts_and_resize(tmp_path, monkeypatch):
             page.locator("#page-holder svg").wait_for()
             assert page.locator("#zoom-readout").inner_text() == "100%"
             page.locator("#viewer-stage").focus()
+            stage.evaluate("(e) => { e.scrollTop = 0; }")
+            bounds = stage.bounding_box()
+            page.keyboard.down("Space")
+            page.mouse.move(bounds["x"] + 150, bounds["y"] + 200)
+            page.mouse.down()
+            page.mouse.move(bounds["x"] + 150, bounds["y"] + 90, steps=5)
+            page.mouse.up()
+            page.keyboard.up("Space")
+            assert stage.evaluate("(e) => e.scrollTop") >= 100
+            assert "can-pan" not in stage.get_attribute("class")
             page.keyboard.press("f")
             assert page.locator("#zoom-fit").get_attribute("aria-pressed") == "true"
             page.locator("#shortcut-help").click()
