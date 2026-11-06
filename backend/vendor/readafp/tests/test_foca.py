@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from readafp.foca import PATTECH_CID, PATTECH_RASTER, parse_fonts
+from readafp.foca import PATTECH_CID, PATTECH_RASTER, _glyph_png, parse_fonts
+from readafp.ioca import pack_png
 from readafp.parser import iter_fields, parse_file
 from readafp.ptoca import extract_pages
 from readafp.render import page_to_svg
@@ -19,6 +20,20 @@ FOCA_SAMPLE = TESTDATA / "foca_sample.afp"
 def _png_dims(png: bytes) -> tuple:
     assert png.startswith(b"\x89PNG")
     return struct.unpack(">II", png[16:24])
+
+
+@pytest.mark.parametrize(("pattern", "pixels"), [
+    (b"\x80\x01\xaa", b"\x7f\xfe\x55\xff"),
+    (b"\x80\x01\xaa\x00\xff", b"\x7f\xfe\x55\xff"),
+])
+def test_raster_glyph_preserves_bits_and_padding(pattern, pixels):
+    # A 9-pel glyph spans two bytes per row. Missing bytes are white;
+    # trailing bytes outside the two declared rows are ignored.
+    assert _glyph_png(pattern, 9, 2) == pack_png(9, 2, 1, 0, 2, pixels)
+
+
+def test_raster_glyph_refuses_oversized_bitmaps():
+    assert _glyph_png(b"\xff", 8192, 1025) is None
 
 
 def test_parse_raster_fonts_from_sample1() -> None:

@@ -1190,7 +1190,7 @@ def _scale(value: int, from_upi: int, to_upi: int) -> int:
 
 def _parse_iob(
     data: bytes,
-    resources: Dict[str, bytes],
+    resources: Dict[str, List[bytes]],
     images: Dict[str, _ImageObject],
     page_upi: int,
 ) -> Optional[ImageRef]:
@@ -1221,8 +1221,14 @@ def _parse_iob(
             upi = _u16(tdata, 2) // 10 or None
 
     bands: Optional[List[bytes]] = None
-    blob = resources.get(name)
-    if blob is not None:
+    chunks = resources.get(name)
+    if chunks is not None:
+        # Assemble only referenced containers, once per version of the
+        # resource. Earlier ImageRefs keep their immutable bytes if a later
+        # container appends more data under the same name.
+        if len(chunks) > 1:
+            chunks[:] = [b"".join(chunks)]
+        blob = chunks[0]
         mime = _sniff_image(blob)
         if mime is None:
             return None
@@ -1360,7 +1366,7 @@ def extract_pages(
         if font.name and font.typeface
     }
     embedded_text_fonts: Dict[int, _EmbeddedFont] = {}
-    resources: Dict[str, bytes] = {}
+    resources: Dict[str, List[bytes]] = {}
     container: Optional[str] = None
     image_resources: Dict[str, _ImageObject] = {}
     loose_images: List[_ImageObject] = []
@@ -1387,7 +1393,9 @@ def extract_pages(
         elif f.sf_id == 0xD3A992:  # EOC
             container = None
         elif f.sf_id == 0xD3EE92 and container:  # OCD carries its bytes
-            resources[container] = resources.get(container, b"") + f.data
+            # Repeated bytes concatenation copies the whole prefix for every
+            # field, even for resources that the requested page never uses.
+            resources.setdefault(container, []).append(f.data)
         elif f.sf_id in (0xD3A8CE, 0xD3A85F):  # BRS / BPS name a resource
             resource_name = f.token_name
         elif f.sf_id in (0xD3A9CE, 0xD3A95F):  # ERS / EPS

@@ -2,6 +2,10 @@
 
 ## 0.3.0-dev — Unified Engine UAT
 
+- Faster previews for AFPs with large object containers or many embedded
+  bitmap fonts. Unused container data is kept in chunks instead of repeatedly
+  copied; bitmap glyphs keep the same rendered pixels.
+
 - Clearer file opening, inline path errors and a return action that keeps
   the current document and tab. Comparison and Engineering show the controls
   needed for the current task, with report feedback next to the export buttons.

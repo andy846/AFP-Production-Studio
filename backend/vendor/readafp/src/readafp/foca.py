@@ -59,6 +59,7 @@ _ALIGN = {0x00: 1, 0x02: 4, 0x03: 8}
 _MAX_GLYPHS = 1024
 _MAX_CHARS = 4096  # FNI metric records (outline fonts have no bitmaps)
 _MAX_PATTERN_BYTES = 1 << 20  # 1 MiB per glyph bitmap
+_INVERT_PELS = bytes(range(255, -1, -1))
 
 
 @dataclass
@@ -146,16 +147,13 @@ def _glyph_png(pattern: bytes, width: int, height: int) -> Optional[bytes]:
     inverted: a toned FOCA pel becomes a cleared (dark) PNG bit.
     """
     row_bytes = (width + 7) // 8
-    if row_bytes * height > _MAX_PATTERN_BYTES:
+    size = row_bytes * height
+    if size > _MAX_PATTERN_BYTES:
         return None
-    out = bytearray(b"\xff" * row_bytes * height)
-    for ry in range(height):
-        src = ry * row_bytes
-        for col in range(row_bytes):
-            i = src + col
-            if i < len(pattern):
-                out[ry * row_bytes + col] = pattern[i] ^ 0xFF
-    return pack_png(width, height, 1, 0, row_bytes, bytes(out))
+    # Rows are already packed. Invert all available bytes in bulk and fill
+    # missing bytes with white without changing the PNG scanline layout.
+    pixels = pattern[:size].translate(_INVERT_PELS).ljust(size, b"\xff")
+    return pack_png(width, height, 1, 0, row_bytes, pixels)
 
 
 def _decode_raster_glyphs(

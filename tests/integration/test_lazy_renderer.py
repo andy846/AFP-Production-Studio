@@ -11,6 +11,8 @@ corpus that ships with readAFP.
 
 from __future__ import annotations
 
+import tracemalloc
+
 import pytest
 
 from readafp.parser import parse_file
@@ -19,6 +21,7 @@ from readafp.render import page_to_svg
 
 from afpstudio.viewer.index import build_index
 from afpstudio.viewer.renderer import PageRenderer
+from afpstudio.testing import synthetic as sf
 
 
 def upstream_svgs(path) -> list[str]:
@@ -132,3 +135,45 @@ def test_a_page_outside_the_document_is_refused(tmp_path):
         renderer.render(5)
     with pytest.raises(RenderError):
         renderer.render(-1)
+
+
+def test_unused_container_does_not_duplicate_payloads_during_page_modeling(tmp_path):
+    path = tmp_path / "large-unused-container.afp"
+    chunk = b"\xab" * 32760
+    count = 160
+    path.write_bytes(sf.bdt() + sf.structured_field(0xD3A892, sf.encode_name("UNUSED"))
+                     + sf.structured_field(0xD3EE92, chunk) * count
+                     + sf.structured_field(0xD3A992) + sf.bpg() + sf.pgd(210, 297)
+                     + sf.ptx_text([("Visible body", 480)]) + sf.epg() + sf.edt())
+    fields = parse_file(str(path))
+
+    # Measure additional model allocations after reading the input. Keeping
+    # chunk references is cheap; copying the whole unused resource is not.
+    tracemalloc.start()
+    try:
+        pages = extract_pages(fields)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert "Visible body" in page_to_svg(pages[0])
+    assert peak < (len(chunk) * count) // 2
+
+
+def test_referenced_container_keeps_split_image_bytes_and_record_order(tmp_path):
+    path = tmp_path / "split-image.afp"
+    name = sf.encode_name("IMAGE")
+    begin = sf.structured_field(0xD3A892, name)
+    end = sf.structured_field(0xD3A992)
+    payload = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
+    size = sf.triplet(0x4C, b"\x00\x00\x00\x10\x00\x00\x10")
+    include = sf.structured_field(0xD3AFC3, name + bytes(19) + size)
+    page = sf.bpg() + sf.pgd(210, 297) + include + include + sf.epg()
+    path.write_bytes(sf.bdt() + begin + sf.structured_field(0xD3EE92, payload[:2])
+                     + sf.structured_field(0xD3EE92, payload[2:]) + end + page
+                     + begin + sf.structured_field(0xD3EE92, b"extra") + end + page + sf.edt())
+
+    first, second = extract_pages(parse_file(str(path)))
+    assert [image.data for image in first.images] == [payload, payload]
+    assert [image.data for image in second.images] == [payload + b"extra"] * 2
+    assert all(image.mime == "image/gif" for model in (first, second) for image in model.images)

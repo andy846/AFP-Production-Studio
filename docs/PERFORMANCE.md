@@ -1,5 +1,31 @@
 # Performance measurements
 
+## Page turns with embedded resources
+
+Measured in the packaged Windows WebView2 application on the same local
+54.4 MB AFP with 1,138 pages. Times run from the Next/Previous button click
+to the new SVG being visible and two animation frames having elapsed.
+
+| Navigation | Previous EXE | Updated EXE |
+|---|---:|---:|
+| Page 2, first visit | 14.707 s | 0.945 s |
+| Page 3, first visit | 15.230 s | 0.315 s |
+| Page 4, first visit | 15.217 s | 0.730 s |
+| Back to page 3, cached | 0.130 s | 0.158 s |
+
+The displayed SVG hashes matched before and after, the AFP hash was unchanged,
+and both EXEs exited and removed their temporary extraction folders. The
+uncached renders had been copying the growing payload of unused object
+containers at every structured field. The renderer now assembles each container
+only if a page references it.
+
+In a separate, paired CPU benchmark of three AFPs with many embedded bitmap
+fonts (12, 108 and 116 pages), median render times across three pages per
+file went from 0.89–1.27 s to 0.61–0.69 s. The SVGs were byte-identical.
+These measurements cover local inputs on one machine. The benchmark files
+are excluded from the repository; automated regressions use synthetic or
+publicly licensed AFPs.
+
 ## v0.3 full-open benchmark: one IMM per page
 
 Measured on Windows build 26300, CPython 3.11.3, synthetic simplex files.
