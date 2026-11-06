@@ -18,7 +18,7 @@
     report: null,
     page: 1,
     zoom: 1,
-    zoomFitted: true,
+    fitMode: "page",
     tab: "viewer",
     tree: null,
     jobTimer: null,
@@ -111,7 +111,7 @@
     if (!state.document) return;
     const item = documents.get(state.document.document_id);
     if (item) Object.assign(item, {
-      page: state.page, zoom: state.zoom, zoomFitted: state.zoomFitted,
+      page: state.page, zoom: state.zoom, fitMode: state.fitMode,
       tab: state.tab, preflight: state.preflight, report: state.report,
       search: $("search-input").value
     });
@@ -140,7 +140,7 @@
     state.document = item.summary;
     state.page = item.page;
     state.zoom = item.zoom;
-    state.zoomFitted = item.zoomFitted;
+    state.fitMode = item.fitMode;
     state.preflight = item.preflight;
     state.report = item.report;
     state.tree = null;
@@ -545,7 +545,7 @@
     const restore = recentRestore;
     recentRestore = null;
     documents.set(summary.document_id, {summary, page: restore ? restore.page : 1, zoom: restore ? restore.zoom : 1,
-      zoomFitted: !restore, tab: "viewer", preflight: null, report: null});
+      fitMode: restore ? "manual" : "page", tab: "viewer", preflight: null, report: null});
     documentIndexOffset = 0;
     await activateDocument(summary.document_id);
     scheduleRecent();
@@ -734,6 +734,23 @@
     $("zoom-in").addEventListener("click", () => setZoom(state.zoom * 1.25));
     $("zoom-out").addEventListener("click", () => setZoom(state.zoom / 1.25));
     $("zoom-fit").addEventListener("click", fitPage);
+    $("zoom-width").addEventListener("click", () => setFitMode("width"));
+    $("zoom-actual").addEventListener("click", () => setZoom(1));
+    $("viewer-stage").addEventListener("wheel", (event) => {
+      if (!event.ctrlKey || !state.document) return;
+      event.preventDefault();
+      setZoom(state.zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15));
+    }, {passive: false});
+    if (typeof ResizeObserver !== "undefined") {
+      let frame = null;
+      new ResizeObserver(() => {
+        if (frame !== null) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          if (state.fitMode !== "manual") applyFit();
+        });
+      }).observe($("viewer-stage"));
+    }
   }
 
   function initPanelResizing() {
@@ -782,7 +799,10 @@
     });
   }
 
-  function setZoom(value) {
+  function setZoom(value, keepMode = false) {
+    if (!keepMode) state.fitMode = "manual";
+    $("zoom-fit").setAttribute("aria-pressed", String(state.fitMode === "page"));
+    $("zoom-width").setAttribute("aria-pressed", String(state.fitMode === "width"));
     state.zoom = Math.min(8, Math.max(0.1, value));
     $("zoom-readout").textContent = Math.round(state.zoom * 100) + "%";
     const holder = $("page-holder");
@@ -801,7 +821,14 @@
     scheduleRecent();
   }
 
-  function fitPage() {
+  function fitPage() { setFitMode("page"); }
+
+  function setFitMode(mode) {
+    state.fitMode = mode;
+    applyFit();
+  }
+
+  function applyFit() {
     const stage = $("viewer-stage");
     const svg = $("page-holder").querySelector("svg");
     if (!svg) return;
@@ -812,11 +839,11 @@
     }
     const available = stage.clientWidth - 60;
     const availableHeight = stage.clientHeight - 60;
-    const scale = Math.min(
-      available / size.width,
-      availableHeight > 0 ? availableHeight / size.height : Infinity
+    const widthScale = available / size.width;
+    const scale = state.fitMode === "width" ? widthScale : Math.min(
+      widthScale, availableHeight > 0 ? availableHeight / size.height : Infinity
     );
-    setZoom(Math.min(2, Math.max(0.1, scale)));
+    setZoom(Math.min(8, Math.max(0.1, scale)), true);
   }
 
   /* The page SVG carries a viewBox but no width or height, so the
@@ -873,12 +900,8 @@
       $("viewer-empty").hidden = true;
       // The first page is fitted to the stage; after that the operator's
       // own zoom is kept.
-      if (state.zoomFitted) {
-        fitPage();
-        state.zoomFitted = false;
-      } else {
-        setZoom(state.zoom);
-      }
+      if (state.fitMode !== "manual") applyFit();
+      else setZoom(state.zoom, true);
       highlightTreePage(clamped);
       renderDetails(clamped);
       if (state.tab === "structure") loadStructurePage(clamped);
@@ -1748,6 +1771,8 @@
     initEngineering();
     initBatch();
     initJournal();
+    $("shortcut-help").addEventListener("click", () => $("shortcuts-dialog").showModal());
+    $("shortcut-close").addEventListener("click", () => $("shortcuts-dialog").close());
     $("index-kind").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
     $("index-codepage").addEventListener("change", () => { documentIndexOffset = 0; loadDocumentIndex(); });
     let indexSearchTimer;
@@ -1777,7 +1802,8 @@
       if (event.ctrlKey && !event.altKey && key === "f" && state.document) {
         event.preventDefault(); $("search-input").focus(); return;
       }
-      if (editable || !state.document || state.tab !== "viewer") return;
+      if (editable || !state.document || state.tab !== "viewer" ||
+          !$("viewer-stage").contains(document.activeElement)) return;
       if (key === "pagedown") { event.preventDefault(); showPage(state.page + 1); }
       else if (key === "pageup") { event.preventDefault(); showPage(state.page - 1); }
       else if (event.ctrlKey && key === "home") { event.preventDefault(); showPage(1); }
@@ -1785,6 +1811,7 @@
       else if (event.ctrlKey && (key === "+" || key === "=")) { event.preventDefault(); setZoom(state.zoom * 1.25); }
       else if (event.ctrlKey && key === "-") { event.preventDefault(); setZoom(state.zoom / 1.25); }
       else if (!event.ctrlKey && !event.altKey && key === "f") { event.preventDefault(); fitPage(); }
+      else if (!event.ctrlKey && !event.altKey && key === "w") { event.preventDefault(); setFitMode("width"); }
     });
     setStatus("Ready. Enter the path of an AFP file to begin.");
   }

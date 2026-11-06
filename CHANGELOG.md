@@ -13,6 +13,9 @@
   an external FormDef, printer profile or Java comparison settings.
 - Windows native multi-select opens up to eight documents sequentially with
   independent one-use file grants, progress and cancellation.
+- Viewer fit-page and fit-width modes follow page and window changes; manual
+  zoom remains stable. Shortcut help and viewer-scoped keyboard controls are
+  available in the workbench.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

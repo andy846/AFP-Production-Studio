@@ -25,6 +25,7 @@
     <div class="masthead-tools">
       <button type="button" class="primary" id="open-new">Open AFP</button>
       <button type="button" id="recent-open" title="Recent files (Ctrl+Shift+O)">Recent</button>
+      <button type="button" id="shortcut-help" title="Show keyboard shortcuts">Shortcuts</button>
       <span class="privacy-note" title="Local processing; selected network shares may be read">
         local processing &middot; selected shares
       </span>
@@ -125,7 +126,9 @@
           <button class="ghost small" id="zoom-out" title="Zoom out">&minus;</button>
           <span class="zoom-readout" id="zoom-readout">100%</span>
           <button class="ghost small" id="zoom-in" title="Zoom in">+</button>
-          <button class="ghost small" id="zoom-fit">Fit</button>
+          <button class="ghost small" id="zoom-fit" title="Fit page (F)" aria-pressed="true">Fit page</button>
+          <button class="ghost small" id="zoom-width" title="Fit width (W)" aria-pressed="false">Fit width</button>
+          <button class="ghost small" id="zoom-actual" title="Reset to 100% viewer scale">100%</button>
           <span class="pager">
             <button class="ghost small" id="page-first" title="First page" aria-label="First page">&laquo;</button>
             <button class="ghost small" id="page-prev" title="Previous page" aria-label="Previous page">&lsaquo;</button>
@@ -270,6 +273,21 @@
     <p>The selected output already exists. Replacing it cannot be undone.</p>
     <p id="overwrite-path" class="overwrite-path"></p>
     <div class="dialog-actions"><button type="button" id="overwrite-cancel">Cancel</button><button type="button" class="primary" id="overwrite-confirm">Replace output</button></div>
+  </dialog>
+  <dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
+    <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+    <p>Viewer shortcuts work when the page viewer has focus.</p>
+    <dl class="shortcut-list">
+      <dt>Ctrl+O</dt><dd>Open AFP</dd>
+      <dt>Ctrl+Shift+O</dt><dd>Recent files</dd>
+      <dt>Ctrl+F</dt><dd>Search fields or text</dd>
+      <dt>Ctrl+G</dt><dd>Go to page</dd>
+      <dt>Page Up / Page Down</dt><dd>Previous / next page</dd>
+      <dt>Ctrl+Home / Ctrl+End</dt><dd>First / last page</dd>
+      <dt>Ctrl++ / Ctrl+-</dt><dd>Zoom in / out</dd>
+      <dt>F / W</dt><dd>Fit page / fit width</dd>
+    </dl>
+    <div class="dialog-actions"><button type="button" id="shortcut-close">Close</button></div>
   </dialog>
 
   <footer class="statusbar">
