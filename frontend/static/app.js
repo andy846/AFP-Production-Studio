@@ -29,6 +29,7 @@
 
   const $ = (id) => document.getElementById(id);
   const documents = new Map();
+  const closingDocuments = new Set();
   let recentRestore = null;
   let recentSaveTimer = null;
   let recentSavePending = Promise.resolve();
@@ -164,11 +165,18 @@
   async function closeActiveDocument() {
     if (!state.document) return;
     const id = state.document.document_id;
+    if (closingDocuments.has(id)) return;
+    closingDocuments.add(id);
     clearTimeout(recentSaveTimer);
-    await saveRecent(id, state.page, state.zoom);
-    try { await api("/api/documents/" + id, { method: "DELETE" }); }
-    catch (err) { setStatus(err.message); return; }
+    try {
+      await saveRecent(id, state.page, state.zoom);
+      await api("/api/documents/" + id, { method: "DELETE" });
+    } catch (err) {
+      if (err.code !== "document_not_found") { setStatus(err.message); return; }
+    } finally { closingDocuments.delete(id); }
     documents.delete(id);
+    document.dispatchEvent(new CustomEvent("document-forgotten", {detail: id}));
+    if (state.document?.document_id !== id) { renderDocumentTabs(); return; }
     state.document = null;
     state.preflight = null;
     state.report = null;
@@ -483,7 +491,11 @@
   }
 
   function invalidateDocument(message) {
-    if (state.document) documents.delete(state.document.document_id);
+    if (state.document) {
+      const id = state.document.document_id;
+      documents.delete(id);
+      document.dispatchEvent(new CustomEvent("document-forgotten", {detail: id}));
+    }
     state.document = null;
     state.preflight = null;
     state.report = null;
@@ -1641,6 +1653,13 @@
     let jobId = null;
     let documentId = null;
     const current = () => documentId === state.document?.document_id;
+    document.addEventListener("document-forgotten", (event) => {
+      if (event.detail !== documentId) return;
+      documentId = null;
+      results.replaceChildren();
+      status.textContent = "";
+      $("preview-search-query").value = "";
+    });
     $("preview-search-open").addEventListener("click", () => {
       if (!state.document) { setStatus("Open an AFP document first."); return; }
       if (!current() && !jobId) {
@@ -1679,7 +1698,8 @@
             const data = job.result;
             status.textContent = data.items.length + " matches in " + data.scanned_pages + " of " +
               data.total_pages + " pages." + (data.complete ? "" : " Preview coverage is incomplete.") +
-              (data.limited ? " Stopped at the 200-match limit." : "");
+              (data.limited ? " Stopped at the 200-match limit." : "") +
+              (data.work_limited ? " Stopped at the document search work limit." : "");
             for (const hit of data.items) {
               const hitDocument = documentId;
               const button = el("button", "ghost", "Page " + hit.page +

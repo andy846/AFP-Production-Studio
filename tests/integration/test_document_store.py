@@ -137,3 +137,35 @@ def test_search_text_scans_the_encoded_stream(tmp_path):
     assert results
     assert results[0]["offset"] >= 0
     assert results[0]["page"] is not None or results[0]["page"] is None
+def test_output_cannot_publish_over_source_while_indexing(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    import pytest
+    from afpstudio.document_model import model
+    from afpstudio.security.paths import PathError
+    from afpstudio.testing.synthetic import demo_job
+
+    source = tmp_path / "pending.afp"
+    original = demo_job()
+    source.write_bytes(original)
+    started, release = Event(), Event()
+    build = model.build_index
+
+    def paused_index(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(model, "build_index", paused_index)
+    store = model.DocumentStore()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        opening = pool.submit(store.open, source)
+        try:
+            assert started.wait(5)
+            assert not store.list()
+            with pytest.raises(PathError):
+                store.publish_output(source, [tmp_path], lambda: source.write_bytes(b"overwrite"))
+            assert source.read_bytes() == original
+        finally:
+            release.set()
+        assert opening.result(timeout=5).path == source

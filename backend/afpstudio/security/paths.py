@@ -159,7 +159,7 @@ def publish_temporary(temporary: Path, target: Path, *, overwrite=False) -> None
         temporary.unlink()
 
 
-def atomic_write_bytes(target: Path, payload: bytes, *, overwrite=True, verify=None) -> Path:
+def atomic_write_bytes(target: Path, payload: bytes, *, overwrite=True, verify=None, publisher=None) -> Path:
     """Write ``payload`` to ``target`` via a temp file and one rename.
 
     A failed or interrupted write leaves the previous file untouched
@@ -177,7 +177,9 @@ def atomic_write_bytes(target: Path, payload: bytes, *, overwrite=True, verify=N
             os.fsync(fh.fileno())
         if verify is not None:
             verify()
-        publish_temporary(tmp_path, target, overwrite=overwrite)
+        def commit():
+            publish_temporary(tmp_path, target, overwrite=overwrite)
+        (publisher or (lambda action: action()))(commit)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise

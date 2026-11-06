@@ -29,7 +29,7 @@ from afpstudio.security.paths import PathError, resolve_under_roots, resolve_sel
 from afpstudio.security.paths import atomic_write_bytes
 from afpstudio.viewer.resources import resource_dependencies
 from afpstudio.viewer.jobs import JobQueueFull
-from afpstudio.viewer.renderer import RenderError, select_global_fields
+from afpstudio.viewer.renderer import RenderError, TextSearchReplay
 from afpstudio.engineering.writer import write_document
 from afpstudio.engineering.conversion import convert_preview
 from afpstudio.engineering.documents import combine_documents
@@ -46,6 +46,12 @@ def _store() -> DocumentStore:
 
 def _jobs():
     return current_app.extensions["studio"]["jobs"]
+
+
+def _forget_document(document_id: str) -> bool:
+    closed = _store().close(document_id)
+    _jobs().discard_document(document_id)
+    return closed
 
 
 def _profiles():
@@ -148,7 +154,10 @@ def parser_status():
 def workspace_settings():
     store = current_app.extensions["studio"]["workspace"]
     if request.method == "GET":
-        return jsonify(store.snapshot())
+        try:
+            return jsonify(store.snapshot())
+        except OSError:
+            return _error("Could not read workspace settings.", 500, "settings_failed")
     return _update_workspace()
 
 
@@ -191,7 +200,10 @@ def open_document():
     if request.path.endswith("/workspace/recent/open"):
         if set(payload) != {"id"}:
             return _error("A recent document ID is required.")
-        recent = current_app.extensions["studio"]["workspace"].find(payload["id"])
+        try:
+            recent = current_app.extensions["studio"]["workspace"].find(payload["id"])
+        except OSError:
+            return _error("Could not read recent files.", 500, "settings_failed")
         if recent is None:
             return _error("Recent document not found.", 404, "recent_not_found")
         raw_path = recent["path"]
@@ -300,7 +312,10 @@ def open_document():
         return session_doc.summary()
 
     try:
-        job = _jobs().submit("open-document", "Open document", work)
+        def protected_open(context):
+            with store.reserve_sources((path, *form_defs)):
+                return work(context)
+        job = _jobs().submit("open-document", "Open document", protected_open)
     except JobQueueFull as exc:
         return _error(str(exc), 429, "job_queue_full")
     return jsonify({"job": job.as_dict()})
@@ -341,7 +356,7 @@ def _session_or_error(document_id: str):
     try:
         document.check_sources()
     except SourceChangedError as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return None, _error(str(exc), 409, "source_changed")
     return document, None
 
@@ -357,7 +372,7 @@ def document_summary(document_id: str):
 @bp.delete("/documents/<document_id>")
 @require_csrf
 def close_document(document_id: str):
-    if not _store().close(document_id):
+    if not _forget_document(document_id):
         return _error("Unknown document.", 404, "document_not_found")
     return jsonify({"ok": True})
 
@@ -374,7 +389,7 @@ def page_svg(document_id: str, page: int):
     except RenderError as exc:
         return _error(str(exc), 422, "render_failed")
     except (SourceChangedError, OSError) as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return _error(str(exc), 409, "source_changed")
     response = current_app.response_class(svg, mimetype="image/svg+xml")
     response.headers["Cache-Control"] = "no-store"
@@ -402,7 +417,7 @@ def positioned_text(document_id):
     except RenderError as exc:
         return _error(str(exc), 422, "render_failed")
     except (SourceChangedError, OSError) as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return _error(str(exc), 409, "source_changed")
     rows = [item for item in result["items"] if query.casefold() in item["text"].casefold()]
     result.update(items=rows[offset:offset + limit], total=len(rows))
@@ -432,13 +447,17 @@ def search_preview_text(document_id: str):
         scanned = 0
         incomplete = total - indexed
         limited = False
-        shared = select_global_fields(document.index)
+        work_limited = False
+        replay = TextSearchReplay(document.path, document.index)
         for page in range(indexed):
             context.progress(page / max(1, total), f"Searching page {page + 1} of {total}.")
             if store.get(document_id) is not document:
                 raise SourceChangedError("The document was closed during search.")
+            if not replay.allow_page(page):
+                work_limited = True
+                break
             try:
-                result = document.renderer.text_runs(page, codepage=codepage, global_fields=shared)
+                result = document.renderer.text_runs(page, codepage=codepage, replay=replay)
             except RenderError:
                 incomplete += 1
                 continue
@@ -458,11 +477,11 @@ def search_preview_text(document_id: str):
                 break
         document.check_sources()
         return {"items": items, "scanned_pages": scanned, "total_pages": total,
-                "complete": not (incomplete or limited or document.index.truncated),
-                "incomplete_pages": incomplete, "limited": limited}
+                "complete": not (incomplete or limited or work_limited or document.index.truncated),
+                "incomplete_pages": incomplete, "limited": limited, "work_limited": work_limited}
 
     try:
-        job = _jobs().submit("text-search", "Search preview text", work)
+        job = _jobs().submit("text-search", "Search preview text", work, document_id=document_id)
     except JobQueueFull as exc:
         return _error(str(exc), 429, "job_queue_full")
     return jsonify({"job": job.as_dict()})
@@ -526,7 +545,7 @@ def structure_index(document_id: str):
             result = build_structure_index(document.path, document.index, preview_codec=preview_codec)
         document.check_sources()
     except (SourceChangedError, OSError) as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return _error(str(exc), 409, "source_changed")
     rows = result[kind]
     if query:
@@ -573,7 +592,7 @@ def document_resource_dependencies(document_id: str):
         result = resource_dependencies(document.index, document.path, inventory=document.resource_inventory)
         document.check_sources()
     except (OSError, SourceChangedError) as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return _error(str(exc), 409, "source_changed")
     rows = result[kind]
     return jsonify({"kind": kind, "items": rows[offset:offset + limit], "total": len(rows),
@@ -717,17 +736,12 @@ def export_report(document_id: str):
         )
 
     try:
-        def verify():
-            document.check_sources()
-            for source in document.source_signatures:
-                if safe_output_path(target, roots, source=source) != target:
-                    raise PathError("Output location changed before publishing.")
-            for opened in _store().list():
-                for source in opened.source_signatures:
-                    safe_output_path(target, roots, source=source)
-        atomic_write_bytes(target, data, overwrite=payload.get("overwrite") is True, verify=verify)
+        store = _store()
+        atomic_write_bytes(target, data, overwrite=payload.get("overwrite") is True,
+                           verify=document.check_sources, publisher=lambda action:
+                           store.publish_output(target, roots, action, sources=document.source_signatures))
     except SourceChangedError as exc:
-        _store().close(document_id)
+        _forget_document(document_id)
         return _error(str(exc), 409, "source_changed")
     except FileExistsError:
         return _error("Output appeared during generation; confirm replacement explicitly.", 409, "overwrite_required")
@@ -777,13 +791,11 @@ def engineering(document_id):
     output_roots = _config().allowed_roots()
     def work(context):
         context.progress(.05, "Preparing local output.")
-        def publish(action):
-            def guarded():
-                for opened in store.list():
-                    for source in opened.source_signatures:
-                        safe_output_path(target, output_roots, source=source)
-                return action()
-            return context.publish(guarded)
+        def publish(destination, action):
+            if destination != target:
+                raise PathError("Output location changed before publishing.")
+            return context.publish(lambda: store.publish_output(
+                destination, output_roots, action, sources=(*document.source_signatures, *additional_paths)))
         if operation in ("copy", "edit"):
             result = write_document(document, target, [] if operation == "copy" else payload.get("patches", []),
                 overwrite=overwrite, check_cancelled=context.check_cancelled, publisher=publish)

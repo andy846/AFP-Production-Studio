@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import threading
 import uuid
+from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -32,6 +34,7 @@ from afpstudio.viewer.cache import PageCache
 from afpstudio.viewer.index import DocumentIndex, build_index
 from afpstudio.viewer.renderer import PageRenderer
 from afpstudio.viewer.resources import preflight_resources
+from afpstudio.security.paths import PathError, safe_output_path
 
 
 class SourceChangedError(RuntimeError):
@@ -267,8 +270,41 @@ class DocumentStore:
         self.cache = cache or PageCache()
         self._documents: dict[str, DocumentSession] = {}
         self._lock = threading.Lock()
+        self._opening = Counter()
 
-    def open(
+    @contextmanager
+    def reserve_sources(self, paths):
+        """Protect sources throughout indexing, including before registration."""
+        paths = tuple(Path(path) for path in paths)
+        with self._lock:
+            self._opening.update(paths)
+        try:
+            yield
+        finally:
+            with self._lock:
+                for path in paths:
+                    self._opening[path] -= 1
+                    if not self._opening[path]:
+                        del self._opening[path]
+
+    def publish_output(self, target, roots, action, *, sources=()):
+        """Hold the source registration lock through the final rename."""
+        with self._lock:
+            protected = set(sources) | set(self._opening)
+            for session in self._documents.values():
+                protected.update(session.source_signatures)
+            if safe_output_path(target, roots) != target:
+                raise PathError("Output location changed before publishing.")
+            for path in protected:
+                safe_output_path(target, roots, source=path)
+            return action()
+
+    def open(self, path, profile=None, form_defs=None, *args, **kwargs):
+        form_defs = tuple(form_defs or ())
+        with self.reserve_sources((path, *form_defs)):
+            return self._open(path, profile, form_defs, *args, **kwargs)
+
+    def _open(
         self,
         path: Path,
         profile: PrinterProfile | None = None,

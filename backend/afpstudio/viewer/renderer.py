@@ -63,12 +63,16 @@ def select_replay_fields(index: DocumentIndex, page: int) -> list[int]:
 
 
 def _read_fields(
-    handle, index: DocumentIndex, selection: list[int]
+    handle, index: DocumentIndex, selection: list[int], cached=None,
 ) -> list[StructuredField]:
     """Read the selected fields, one seek per contiguous run."""
     fields: list[StructuredField] = []
     if sum(index.lengths[i] for i in selection) > 128 * 1024 * 1024:
         raise RenderError("Page replay exceeds the 128 MiB input limit. This page cannot be previewed safely.")
+    if cached:
+        missing = [i for i in selection if i not in cached]
+        loaded = iter(_read_fields(handle, index, missing))
+        return [cached[i] if i in cached else next(loaded) for i in selection]
     i = 0
     total = len(selection)
     while i < total:
@@ -102,6 +106,28 @@ def _read_fields(
             )
         i = j + 1
     return fields
+
+
+class TextSearchReplay:
+    """One search's bounded cache and cumulative replay budget."""
+
+    def __init__(self, path, index):
+        self.index = index
+        self.shared = select_global_fields(index)
+        self.shared_bytes = sum(index.lengths[i] for i in self.shared)
+        self.cached = {}
+        self.fonts = {}
+        self.bytes_left = 512 * 1024 * 1024
+        self.fields_left = 2_000_000
+        if self.shared_bytes <= 16 * 1024 * 1024 and len(self.shared) <= 100_000:
+            with path.open("rb") as handle:
+                self.cached = dict(zip(self.shared, _read_fields(handle, index, self.shared)))
+
+    def allow_page(self, page):
+        bounds = self.index.fields_for_page(page)
+        self.bytes_left -= self.shared_bytes + sum(self.index.lengths[i] for i in bounds)
+        self.fields_left -= len(self.shared) + len(bounds)
+        return self.bytes_left >= 0 and self.fields_left >= 0
 
 
 class PageRenderer:
@@ -147,12 +173,15 @@ class PageRenderer:
 
     # -- rendering -------------------------------------------------------
 
-    def text_runs(self, page: int, *, codepage: str, global_fields: list[int] | None = None):
+    def text_runs(self, page: int, *, codepage: str, global_fields: list[int] | None = None,
+                  replay: TextSearchReplay | None = None):
         """Positioned preview text; offsets identify PTX fields, not glyph bytes."""
         if codepage not in ("cp037", "cp500"):
             raise ValueError("Select a supported fallback code page explicitly.")
         if page < 0 or page >= self.index.page_count:
             raise RenderError("Text extraction currently requires an explicitly bracketed page.")
+        if replay is not None:
+            global_fields = replay.shared
         if global_fields is None:
             selection = select_replay_fields(self.index, page)
         else:
@@ -167,8 +196,9 @@ class PageRenderer:
                              or self.index.sf_ids[i] in ALWAYS_INCLUDE)
             selection.extend(global_fields[high:])
         with self.path.open("rb") as handle:
-            fields = _read_fields(handle, self.index, selection)
-        pages = extract_pages(fields, codepage, self.embed_small_fonts)
+            fields = _read_fields(handle, self.index, selection, replay.cached if replay else None)
+        pages = extract_pages(fields, codepage, self.embed_small_fonts,
+                              font_resource_cache=replay.fonts if replay else None)
         if not pages:
             raise RenderError("No page text model was produced.")
         model = pages[0]

@@ -132,7 +132,7 @@ def write_document(document, target, patches, *, overwrite=False, check_cancelle
         check()
         def commit():
             publish_temporary(temporary, target, overwrite=overwrite)
-        (publisher or (lambda action: action()))(commit)
+        (publisher or (lambda destination, action: action()))(target, commit)
         return {"path": str(target), "input_sha256": input_digest, "output_sha256": output_digest,
                 "byte_identical": input_digest == output_digest, "changes": changes,
                 "validation": "framing_and_media_reparsed", "fidelity": "not_production_validated"}

@@ -5,7 +5,7 @@ from afpstudio.testing import synthetic
 def test_document_preview_search_returns_decoded_matches_and_original_offsets(app_client, tmp_path, monkeypatch):
     import time
     from threading import Event
-    from afpstudio.viewer.renderer import PageRenderer
+    from afpstudio.viewer.renderer import PageRenderer, TextSearchReplay
 
     path = tmp_path / "search.afp"
     path.write_bytes(synthetic.demo_job())
@@ -26,13 +26,26 @@ def test_document_preview_search_returns_decoded_matches_and_original_offsets(ap
     opened = finish(app_client.post("/api/documents/open", json={"path": str(path)}, headers=headers))
     url = "/api/documents/" + opened["document_id"] + "/text-search"
     assert app_client.post(url, json={"q": "letterhead"}, headers=headers).status_code == 400
-    result = finish(app_client.post(url, json={"q": "LETTERHEAD", "codepage": "cp500"}, headers=headers))
+    search_response = app_client.post(url, json={"q": "LETTERHEAD", "codepage": "cp500"}, headers=headers)
+    result = finish(search_response)
     assert result["scanned_pages"] == 4
     assert result["complete"] is True
     assert [hit["page"] for hit in result["items"]] == [3, 4]
     for hit in result["items"]:
         assert "letterhead" in hit["text"]
         assert path.read_bytes()[hit["offset"] + 3:hit["offset"] + 6] == b"\xd3\xee\x9b"
+
+    original_replay = TextSearchReplay.__init__
+
+    def one_page_budget(replay, *args):
+        original_replay(replay, *args)
+        replay.fields_left = len(replay.shared) + len(replay.index.fields_for_page(0))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(TextSearchReplay, "__init__", one_page_budget)
+        limited = finish(app_client.post(url, json={"q": "letterhead", "codepage": "cp500"}, headers=headers))
+    assert limited["work_limited"] is True
+    assert limited["complete"] is False and limited["scanned_pages"] == 1
 
     started, release = Event(), Event()
     pages = []
@@ -55,6 +68,9 @@ def test_document_preview_search_returns_decoded_matches_and_original_offsets(ap
         release.set()
     assert finish(response, "cancelled") is None
     assert pages == [0]
+    assert app_client.delete("/api/documents/" + opened["document_id"], headers=headers).status_code == 200
+    completed_id = search_response.get_json()["job"]["id"]
+    assert app_client.get("/api/jobs/" + completed_id).status_code == 404
 
 
 def test_positioned_runs_have_page_coordinates_and_original_ptx_offset(tmp_path):

@@ -45,8 +45,26 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
             page.wait_for_function("() => document.querySelector('#page-number').value === '4'")
             page.keyboard.press("Control+g")
             assert page.locator("#page-number").evaluate("(e) => document.activeElement === e")
+            page.evaluate("""() => {
+                const original = window.fetch;
+                window.fetch = async function(url, options) {
+                    if (options?.method === 'DELETE') {
+                        window.fetch = original;
+                        await new Promise(resolve => { window.releaseClose = resolve; });
+                    }
+                    return original.apply(this, arguments);
+                };
+            }""")
             page.locator("#close-document").click()
+            page.wait_for_function("() => typeof window.releaseClose === 'function'")
+            page.locator(".document-tab").filter(has_text="second.afp").click()
             page.locator("#doc-name").get_by_text("second.afp").wait_for()
+            page.locator("#page-holder svg").wait_for()
+            page.locator("#page-next").click()
+            page.wait_for_function("() => document.querySelector('#page-number').value === '2'")
+            page.evaluate("() => window.releaseClose()")
+            page.wait_for_function("() => document.querySelectorAll('.document-tab').length === 1")
+            assert page.locator("#page-number").input_value() == "2"
             assert page.locator(".document-tab").count() == 1
             page.locator("#close-document").click()
             page.locator("#recent-list").get_by_text("first.afp", exact=False).click()

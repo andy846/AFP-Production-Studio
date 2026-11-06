@@ -60,3 +60,21 @@ def test_settings_persist_and_invalid_file_recovers(tmp_path):
     assert restored["tree_width"] == 320 and restored["remember"] is False
     path.write_text("{", encoding="utf-8")
     assert WorkspacePreferences(path).snapshot()["tree_width"] == 240
+
+
+def test_second_instance_cannot_restore_disabled_history(tmp_path):
+    from afpstudio.document_model.model import DocumentStore
+    from afpstudio.workspace_preferences import WorkspacePreferences
+    source = tmp_path / "example.afp"
+    source.write_bytes(demo_job())
+    doc = DocumentStore().open(source)
+    path = tmp_path / "workspace.json"
+    first = WorkspacePreferences(path)
+    entry = first.record(doc, 1, 1)["recent"][0]
+    second = WorkspacePreferences(path)
+    first.update({"remember": False})
+    second.update({"tree_width": 320})
+    second.record(doc, 2, 1)
+    assert first.snapshot()["tree_width"] == 320
+    assert first.snapshot()["remember"] is False
+    assert second.find(entry["id"]) is None

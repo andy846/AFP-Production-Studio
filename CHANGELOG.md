@@ -20,6 +20,10 @@
   images load as they become visible, and selecting one jumps to its page.
 - A cancellable document-wide preview text search uses decoded text runs,
   reports coverage limits, and links matches back to pages and PTX fields.
+- Output publication protects sources being opened; closing a tab preserves
+  other tabs' state and discards that document's search results. Workspace
+  settings merge across windows, and search reuses shared resources with a
+  bounded amount of replay work.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

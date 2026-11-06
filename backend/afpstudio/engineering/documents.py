@@ -117,7 +117,7 @@ def combine_documents(documents, target, *, document_numbers=None, overwrite=Fal
         check()
         def commit():
             publish_temporary(temporary, target, overwrite=overwrite)
-        (publisher or (lambda action: action()))(commit)
+        (publisher or (lambda destination, action: action()))(target, commit)
         return {"path": str(target), "documents": len(parts), "pages": parsed.page_count,
                 "provenance": provenance, "validation": "complete_document_brackets_and_media",
                 "fidelity": "not_production_validated"}

@@ -1,8 +1,10 @@
 """Bounded, local workspace preferences; document contents are never saved."""
 import json
 import math
+import os
 import secrets
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from .security.paths import atomic_write_bytes
@@ -12,14 +14,39 @@ class WorkspacePreferences:
     def __init__(self, path: Path):
         self.path = path
         self.lock = threading.RLock()
+
+    def _reload(self):
         self.data = {"version": 1, "remember": True, "tree_width": 240,
                      "details_width": 300, "recent": []}
         try:
-            if path.stat().st_size <= 65536:
-                raw = json.loads(path.read_text(encoding="utf-8"))
+            if self.path.stat().st_size <= 65536:
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
                 self._load(raw)
-        except (OSError, ValueError, TypeError):
+        except (FileNotFoundError, ValueError, TypeError):
             pass
+
+    @contextmanager
+    def _transaction(self):
+        # Lock a stable sibling: the preferences file itself is atomically replaced.
+        with self.lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.with_suffix(self.path.suffix + ".lock").open("a+b") as handle:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle, fcntl.LOCK_EX)
+                try:
+                    self._reload()
+                    yield
+                finally:
+                    if os.name == "nt":
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(handle, fcntl.LOCK_UN)
 
     def _load(self, raw):
         if not isinstance(raw, dict) or raw.get("version") != 1:
@@ -41,8 +68,11 @@ class WorkspacePreferences:
             ]
 
     def snapshot(self):
-        with self.lock:
-            return json.loads(json.dumps(self.data))
+        with self._transaction():
+            return self._snapshot()
+
+    def _snapshot(self):
+        return json.loads(json.dumps(self.data))
 
     def _write(self):
         atomic_write_bytes(self.path, json.dumps(self.data, ensure_ascii=False).encode("utf-8"))
@@ -56,23 +86,23 @@ class WorkspacePreferences:
         for key in ("remember", "clear_recent"):
             if key in changes and type(changes[key]) is not bool:
                 raise ValueError("Invalid workspace setting.")
-        with self.lock:
+        with self._transaction():
             for key in ("remember", "tree_width", "details_width"):
                 if key in changes:
                     self.data[key] = changes[key]
             if changes.get("clear_recent") or not self.data["remember"]:
                 self.data["recent"] = []
             self._write()
-            return self.snapshot()
+            return self._snapshot()
 
     def record(self, document, page, zoom):
         if type(page) is not int or not 1 <= page <= max(document.page_count, 1):
             raise ValueError("Invalid page.")
         if type(zoom) not in (int, float) or not math.isfinite(zoom) or not .1 <= zoom <= 8:
             raise ValueError("Invalid zoom.")
-        with self.lock:
+        with self._transaction():
             if not self.data["remember"]:
-                return self.snapshot()
+                return self._snapshot()
             document.check_sources()
             path = str(document.path)
             old = next((row for row in self.data["recent"] if row["path"] == path), None)
@@ -81,10 +111,10 @@ class WorkspacePreferences:
                      "input_format": document.index.input_format}
             self.data["recent"] = [entry] + [row for row in self.data["recent"] if row["path"] != path][:19]
             self._write()
-            return self.snapshot()
+            return self._snapshot()
 
     def find(self, identifier):
         if not isinstance(identifier, str) or len(identifier) > 64:
             return None
-        with self.lock:
+        with self._transaction():
             return next((dict(row) for row in self.data["recent"] if row["id"] == identifier), None)

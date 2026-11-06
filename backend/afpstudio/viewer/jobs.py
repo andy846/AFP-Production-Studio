@@ -59,6 +59,7 @@ class Job:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     finished: str | None = None
+    document_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -134,10 +135,12 @@ class JobManager:
         kind: str,
         label: str,
         work: Callable[[JobContext], Any],
+        *,
+        document_id: str | None = None,
     ) -> Job:
         """Queue a job and return its handle."""
         job_id = uuid.uuid4().hex
-        job = Job(id=job_id, kind=kind, label=label)
+        job = Job(id=job_id, kind=kind, label=label, document_id=document_id)
         cancel = threading.Event()
         self.prune(keep=128)
         with self._lock:
@@ -240,6 +243,15 @@ class JobManager:
             cancel.set()
             job.message = "Cancellation requested."
             return True
+
+    def discard_document(self, document_id: str) -> None:
+        """Cancel and remove document-owned jobs and their retained results."""
+        with self._lock:
+            for job_id in [key for key, job in self._jobs.items() if job.document_id == document_id]:
+                event = self._cancel.pop(job_id, None)
+                if event is not None:
+                    event.set()
+                self._jobs.pop(job_id).result = None
 
     def prune(self, keep: int = 50) -> None:
         """Drop the oldest finished jobs so the table cannot grow forever."""

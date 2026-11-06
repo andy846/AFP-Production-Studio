@@ -1290,6 +1290,7 @@ def _scan_code_pages(
 def extract_pages(
     fields: List[StructuredField], codepage: str = "cp500",
     embed_small_fonts: bool = False,
+    *, font_resource_cache: Optional[dict] = None,
 ) -> List[Page]:
     """Walk a parsed document and build a rough page model per BPG...EPG.
 
@@ -1316,10 +1317,19 @@ def extract_pages(
     # (name → GCGID→glyph). Pre-scanned so they are ready when an MCF maps
     # a local id to them. embedded_text_fonts is filled by the MCF handler
     # and shared by reference with each _TextState.
-    fixed_spaces: Dict[str, tuple] = {}
-    code_pages = _scan_code_pages(fields, fixed_spaces=fixed_spaces)
-    coded_objects = scan_coded_fonts(fields)
-    _parsed_fonts = parse_fonts(fields)
+    # Only these fields affect the three resource scans. A caller may reuse
+    # one entry within an unchanged source; per-page font bindings stay local.
+    key = (tuple(f.offset for f in fields if f.sf_id & 0xFF in (0x87, 0x89, 0x8A, 0xCE))
+           if font_resource_cache is not None else None)
+    if font_resource_cache is not None and font_resource_cache.get("key") == key:
+        fixed_spaces, code_pages, coded_objects, _parsed_fonts = font_resource_cache["resources"]
+    else:
+        fixed_spaces: Dict[str, tuple] = {}
+        code_pages = _scan_code_pages(fields, fixed_spaces=fixed_spaces)
+        coded_objects = scan_coded_fonts(fields)
+        _parsed_fonts = parse_fonts(fields)
+        if font_resource_cache is not None:
+            font_resource_cache.update(key=key, resources=(fixed_spaces, code_pages, coded_objects, _parsed_fonts))
     char_set_glyphs = {
         font.name: {g.gcgid: g for g in font.glyphs}
         for font in _parsed_fonts

@@ -114,7 +114,7 @@ def convert_preview(document, target, fmt, pages, *, dpi=144, overwrite=False, c
         size = temporary.stat().st_size
         def commit():
             publish_temporary(temporary, target, overwrite=overwrite)
-        (publisher or (lambda action: action()))(commit)
+        (publisher or (lambda destination, action: action()))(target, commit)
         return {"path": str(target), "format": fmt, "pages": [p + 1 for p in pages],
                 "bytes": size, "dpi": dpi, "fidelity": "preview_not_production_validated"}
     except FileExistsError as exc:
