@@ -87,8 +87,12 @@ def test_native_multi_open_queues_selected_synthetic_files(tmp_path, monkeypatch
             page.locator("#browse-multiple").click()
             page.get_by_text("2 of 2 files opened.").wait_for()
             assert page.locator(".document-tab").count() == 2
-            page.locator(".document-tab").filter(has_text="first.afp").click()
+            page.locator("#viewer-stage").focus()
+            page.keyboard.press("Control+Tab")
             page.locator("#doc-name").get_by_text("first.afp").wait_for()
+            page.keyboard.press("Control+w")
+            page.locator("#doc-name").get_by_text("second.afp").wait_for()
+            assert page.locator(".document-tab").count() == 1
             browser.close()
     finally:
         server.stop()

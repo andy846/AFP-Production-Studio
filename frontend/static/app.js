@@ -1800,7 +1800,26 @@
         event.preventDefault(); $("page-number").focus(); $("page-number").select(); return;
       }
       if (event.ctrlKey && !event.altKey && key === "f" && state.document) {
-        event.preventDefault(); $("search-input").focus(); return;
+        event.preventDefault();
+        if ($("workspace").classList.contains("tree-collapsed")) $("toggle-tree").click();
+        $("search-input").focus(); return;
+      }
+      if (!editable && state.document && !multiOpenRunning) {
+        const desktopCycle = nativeApi() && event.ctrlKey && !event.altKey && key === "tab";
+        const alternateCycle = event.altKey && event.shiftKey && !event.ctrlKey &&
+          (event.code === "BracketLeft" || event.code === "BracketRight");
+        if (desktopCycle || alternateCycle) {
+          event.preventDefault();
+          const ids = Array.from(documents.keys());
+          const step = desktopCycle ? (event.shiftKey ? -1 : 1) :
+            (event.code === "BracketLeft" ? -1 : 1);
+          const index = ids.indexOf(state.document.document_id);
+          if (ids.length && index >= 0) activateDocument(ids[(index + step + ids.length) % ids.length]);
+          return;
+        }
+        if (nativeApi() && event.ctrlKey && !event.shiftKey && !event.altKey && key === "w") {
+          event.preventDefault(); closeActiveDocument(); return;
+        }
       }
       if (editable || !state.document || state.tab !== "viewer" ||
           !$("viewer-stage").contains(document.activeElement)) return;
