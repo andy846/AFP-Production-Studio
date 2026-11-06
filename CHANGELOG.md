@@ -4,6 +4,9 @@
 
 - Standard and explicit unspanned RDW opening with original offsets.
 - Document/group/TLE index, positioned text, and rule-based mailpiece candidates.
+- Viewer resolves supported embedded FOCA bitmap coded fonts from MCF format 1,
+  including sectioned double-byte glyphs. Text extraction reports incomplete
+  coverage when those glyphs lack a supported Unicode mapping.
 - Resource dependency observations and operator-attested inventory.
 - Optional Alpheus JSONL 2.0 cross-check with original fields, source digest,
   medium dimensions and explicit duplex comparison.

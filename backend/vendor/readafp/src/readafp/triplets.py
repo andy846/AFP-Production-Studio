@@ -491,7 +491,7 @@ def _mcf1_groups(
 
     def name(rg: bytes, start: int) -> Optional[str]:
         raw = rg[start : start + 8]
-        if raw == b"\xff" * 8:
+        if raw.startswith(b"\xff\xff"):
             return None
         try:
             return raw.decode("cp500").strip() or None
@@ -582,6 +582,11 @@ def parse_mcf_codepages(
             out[local_id] = McfCodePage(label, codec)
         pos += group_len
     return out
+
+
+def mcf1_coded_font_names(data: bytes) -> Dict[int, Optional[str]]:
+    """Map format-1 local IDs to their named coded-font objects."""
+    return {lid: cf for lid, cf, _cp, _cs, _raw in _mcf1_groups(data)}
 
 
 def mcf_font_resources(

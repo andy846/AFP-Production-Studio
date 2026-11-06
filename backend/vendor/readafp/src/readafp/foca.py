@@ -38,6 +38,7 @@ FNI = 0xD38C89  # Font Index
 FNM = 0xD3A289  # Font Patterns Map
 FNG = 0xD3EE89  # Font Patterns
 FNN = 0xD3AB89  # Font Name Map (GCGID -> character name)
+FNO = 0xD3AE89  # Font Orientation
 
 # FNC byte 1, Pattern Technology Identifier.
 PATTECH_RASTER = 0x05  # Laser Matrix N-bit Wide (bitmap glyphs)
@@ -70,6 +71,8 @@ class Glyph:
     char_increment: int  # inline advance, in the font's metric units
     png: bytes  # 1-bit grayscale PNG, dark pel on white
     baseline_offset: int = 0  # box-bottom depth below baseline (1000/em)
+    a_space: int = 0  # distance from the reference point to the left box edge
+    box_top: int = 0  # FOCA baseline offset: baseline to upper box edge
 
 
 @dataclass
@@ -100,6 +103,8 @@ class Font:
     outline_glyphs: Dict[str, "type1.Glyph"] = field(default_factory=dict)
     resolution: int = 0  # raster pattern resolution (pels/inch), from FNC
     point_size: float = 0.0  # nominal font size (points), from FND
+    fixed_metrics_dpi: int = 0
+    space_increment: Optional[int] = None  # fixed metrics, in pels
 
     @property
     def is_raster(self) -> bool:
@@ -154,23 +159,32 @@ def _glyph_png(pattern: bytes, width: int, height: int) -> Optional[bytes]:
 
 
 def _decode_raster_glyphs(
-    fnc: bytes, fni: bytes, fnm: bytes, fng: bytes
+    fnc: bytes, fni: bytes, fnm: bytes, fng: bytes, fno: bytes = b"",
 ) -> List[Glyph]:
     """Decode raster glyphs by joining FNI metrics to FNM/FNG patterns."""
     align = _ALIGN.get(fnc[16], 1) if len(fnc) > 16 else 1
     fni_rg = fnc[15] if len(fnc) > 15 else 28
 
-    # FNM index -> (GCGID, increment, baseline offset), from the Font Index.
-    # The baseline offset (bytes 12-13, signed, 1000/em) is how far the
-    # glyph box bottom sits below the baseline — non-zero for descenders.
+    # Use the upright orientation's uniform metrics when specified.
+    upright = next((fno[i:i + 26] for i in range(0, len(fno) - 25, 26)
+                    if fno[i + 2:i + 4] == b"\x00\x00"), b"")
+    flags = upright[12] if upright else 0
     by_pattern: Dict[int, tuple] = {}
     if fni_rg >= 18:
         for i in range(0, len(fni) - fni_rg + 1, fni_rg):
             gcgid = _decode_name(fni[i : i + 8])
             char_inc = struct.unpack(">H", fni[i + 8 : i + 10])[0]
-            baseline = struct.unpack(">h", fni[i + 12 : i + 14])[0]
+            descent = struct.unpack(">h", fni[i + 12 : i + 14])[0]
             fnm_index = struct.unpack(">H", fni[i + 16 : i + 18])[0]
-            by_pattern.setdefault(fnm_index, (gcgid, char_inc, baseline))
+            a_space = struct.unpack(">h", fni[i + 18 : i + 20])[0] if fni_rg >= 20 else 0
+            box_top = struct.unpack(">h", fni[i + 26 : i + 28])[0] if fni_rg >= 28 else 0
+            if flags & 0x04:
+                a_space = struct.unpack(">h", upright[24:26])[0]
+            if flags & 0x02:
+                box_top = struct.unpack(">h", upright[4:6])[0]
+            if flags & 0x01:
+                char_inc = struct.unpack(">H", upright[6:8])[0]
+            by_pattern.setdefault(fnm_index, (gcgid, char_inc, descent, a_space, box_top))
 
     glyphs: List[Glyph] = []
     count = len(fnm) // 8
@@ -184,7 +198,7 @@ def _decode_raster_glyphs(
         png = _glyph_png(pattern, box_w, box_h)
         if png is None:
             continue
-        gcgid, char_inc, baseline = by_pattern.get(idx, ("", 0, 0))
+        gcgid, char_inc, descent, a_space, box_top = by_pattern.get(idx, ("", 0, 0, 0, 0))
         glyphs.append(
             Glyph(
                 gcgid=gcgid,
@@ -192,7 +206,9 @@ def _decode_raster_glyphs(
                 height=box_h,
                 char_increment=char_inc,
                 png=png,
-                baseline_offset=baseline,
+                baseline_offset=descent,
+                a_space=a_space,
+                box_top=box_top,
             )
         )
     return glyphs
@@ -406,6 +422,56 @@ def parse_code_page(cpi: bytes) -> Dict[int, str]:
     return out
 
 
+def scan_coded_fonts(fields: List[StructuredField]) -> Dict[str, Dict[int, tuple]]:
+    """Resolve CFC/CFI section numbers to (code page, character set) names.
+
+    An unnamed BCF can inherit its name from the enclosing resource wrapper.
+    Reject malformed or conflicting definitions rather than borrowing a section.
+    """
+    found: Dict[str, Dict[int, tuple]] = {}
+    ambiguous = set()
+    wrappers: List[Optional[str]] = []
+    name: Optional[str] = None
+    control = False
+    valid = False
+    sections: Dict[int, tuple] = {}
+    for f in fields:
+        if f.sf_id == 0xD3A8CE:  # BRS
+            wrappers.append(f.token_name)
+        elif f.sf_id == 0xD3A9CE:  # ERS
+            if wrappers:
+                wrappers.pop()
+            name = None
+        elif f.sf_id == 0xD3A88A:  # BCF
+            name = f.token_name or (wrappers[-1] if wrappers else None)
+            control, valid, sections = False, bool(name), {}
+        elif name and f.sf_id == 0xD3A78A:  # CFC
+            valid = valid and not control and f.data == b"\x19\x01"
+            control = True
+        elif name and f.sf_id == 0xD38C8A:  # CFI
+            if not control or not f.data or len(f.data) % 25:
+                valid = False
+                continue
+            for i in range(0, len(f.data), 25):
+                number = f.data[i + 24]
+                cs = _decode_name(f.data[i:i + 8])
+                cp = _decode_name(f.data[i + 8:i + 16])
+                if number in sections or not cs or not cp or not (number == 0 or 0x41 <= number <= 0xFE):
+                    valid = False
+                    break
+                sections[number] = (cp, cs)
+        elif name and f.sf_id == 0xD3A98A:  # ECF
+            if (not valid or not sections or (0 in sections and len(sections) != 1)
+                    or (name in found and found[name] != sections)):
+                ambiguous.add(name)
+            else:
+                found[name] = sections
+            name = None
+    # Keep known invalid names as empty definitions so they do not alias.
+    found.update((name, {}) for name in ambiguous)
+    return found
+
+
 def parse_fonts(fields: List[StructuredField]) -> List[Font]:
     """Extract every BFN...EFN font character set from a parsed file.
 
@@ -416,7 +482,7 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
     """
     fonts: List[Font] = []
     name = ""
-    fnc = fnd = b""
+    fnc = fnd = fno = b""
     fni = fnm = fng = fnn = b""
     in_font = False
 
@@ -424,7 +490,7 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
         if f.sf_id == BFN:
             in_font = True
             name = _decode_name(f.data[:8])
-            fnc = fnd = b""
+            fnc = fnd = fno = b""
             fni = fnm = fng = fnn = b""
         elif not in_font:
             continue
@@ -432,6 +498,8 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
             fnc = f.data
         elif f.sf_id == FND:
             fnd = f.data
+        elif f.sf_id == FNO:
+            fno += f.data
         elif f.sf_id == FNI:
             fni += f.data
         elif f.sf_id == FNM:
@@ -453,7 +521,7 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
             outline_glyphs: Dict[str, "type1.Glyph"] = {}
             if tech == PATTECH_RASTER and fnm and fng:
                 try:
-                    glyphs = _decode_raster_glyphs(fnc, fni, fnm, fng)
+                    glyphs = _decode_raster_glyphs(fnc, fni, fnm, fng, fno)
                 except (struct.error, IndexError) as exc:
                     logger.warning("FOCA glyph decode failed for %s: %s",
                                    name, exc)
@@ -481,6 +549,13 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
                 struct.unpack(">H", fnd[34:36])[0] / 10
                 if len(fnd) >= 36 else 0.0
             )
+            fixed_dpi = 0
+            if tech == PATTECH_RASTER and len(fnc) >= 10 and fnc[4:6] == b"\0\0":
+                x, y = struct.unpack(">HH", fnc[6:10])
+                if x == y and x % 10 == 0:
+                    fixed_dpi = x // 10
+            upright = next((fno[i:i + 26] for i in range(0, len(fno) - 25, 26)
+                            if fno[i + 2:i + 4] == b"\0\0"), b"")
             fonts.append(
                 Font(
                     name=name,
@@ -494,6 +569,8 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
                     outline_glyphs=outline_glyphs,
                     resolution=resolution,
                     point_size=point_size,
+                    fixed_metrics_dpi=fixed_dpi,
+                    space_increment=struct.unpack(">H", upright[8:10])[0] if upright else None,
                 )
             )
     return fonts

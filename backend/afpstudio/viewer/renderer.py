@@ -158,14 +158,18 @@ class PageRenderer:
         if not pages:
             raise RenderError("No page text model was produced.")
         model = pages[0]
-        runs = model.texts + model.text_layer
+        runs = [run for run in model.texts + model.text_layer if not run.preview_only]
         items = [{"text": run.text, "x": run.x, "y": run.y, "font_id": run.font_id,
             "font_family": run.font_family, "font_size": run.font_size, "orientation": run.orientation,
             "page": page + 1, "offset": run.src, "offset_kind": "structured_field"} for run in runs]
+        warnings = (["Some embedded glyphs have no reliable Unicode text. "
+                     "See the page preview for their visible shapes or missing glyph markers."]
+                    if model.coded_text_incomplete else [])
         return {"items": items, "basis": "readAFP_preview", "fallback_codepage": codepage,
                 "codepage_basis": "embedded_mapping_or_operator_fallback",
                 "units": "page_logical_units", "units_per_inch": model.units_per_inch,
-                "complete": not model.truncated and not self.index.truncated,
+                "complete": not (model.truncated or self.index.truncated or model.coded_text_incomplete),
+                "warnings": len(warnings), "warning_details": warnings,
                 "coverage": "preview_text_runs_not_production_verified"}
 
     def render(self, page: int) -> str:
