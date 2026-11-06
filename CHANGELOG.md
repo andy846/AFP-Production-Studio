@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0-dev — Unified Engine UAT
+## 0.3.0 — Unified Engine
 
 - Folder production Excel report with per-file and folder totals for AFP pages,
   estimated sheets and named page groups. Unreadable inputs and unknown

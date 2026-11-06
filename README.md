@@ -10,15 +10,15 @@ Everything runs on the machine it is started on. No document content is
 uploaded, there is no telemetry, and the server binds to the loopback
 interface.
 
-[![Release v0.2.2](https://img.shields.io/badge/release-v0.2.2-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.2.2)
+[![Release v0.3.0](https://img.shields.io/badge/release-v0.3.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.3.0)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
-Version 0.2.2 is for development and UAT. Production approval requires
+Version 0.3.0 is for evaluation and UAT. Production approval requires
 further security, performance and printer/RIP reconciliation testing.
 
-The `main` development build identifies itself as **0.3.0-dev**. Its Unified
+Version 0.3.0's Unified
 Engine adds explicit unspanned RDW input, original-offset TLE/positioned text,
 resource inventory evidence, optional independent JSONL comparison, constrained
 AFP engineering, preview conversion, batch preflight, and a local operator
