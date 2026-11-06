@@ -132,6 +132,7 @@
       bar.appendChild(button);
     });
     bar.hidden = documents.size === 0;
+    document.dispatchEvent(new Event("documents-changed"));
   }
 
   async function activateDocument(id) {
@@ -2002,6 +2003,27 @@
     initPanelResizing();
     initWorkspacePreferences();
     initSearch();
+    window.initCompareWorkbench({api, nativeApi, pickSavePath,
+      documents: () => [...documents.values()].map((item) => item.summary),
+      locate: async (id, page, offset) => {
+        if (!documents.has(id)) return;
+        await activateDocument(id);
+        document.querySelector('[data-tab="viewer"]').click();
+        await showPage(page);
+        if (state.document?.document_id !== id || state.page !== page || !Number.isInteger(offset)) return;
+        const nodes = $("page-holder").querySelectorAll('[data-src="' + offset + '"]');
+        nodes.forEach(node => node.classList.add("preview-search-mark"));
+        if (nodes.length) {
+          nodes[0].scrollIntoView({block: "nearest", inline: "nearest"});
+          return;
+        }
+        document.querySelector('[data-tab="structure"]').click();
+        await loadStructurePage(page);
+        if (state.document?.document_id !== id || state.page !== page) return;
+        const field = $("structure-table").querySelector('tr[data-offset="' + offset + '"]');
+        if (field) { field.classList.add("is-selected"); field.scrollIntoView({block: "nearest"}); field.focus(); }
+        else setStatus("Field offset " + offset + " is outside the displayed page fields.");
+      }});
     initPreviewSearch();
     initExport();
     initEngineering();

@@ -94,6 +94,7 @@
   <nav class="tabs" id="tabs">
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer">Viewer</button>
+    <button class="tab" data-tab="compare">Compare</button>
     <button class="tab" data-tab="structure">Structure</button>
     <button class="tab" data-tab="document-index">Document Index</button>
     <button class="tab" data-tab="preflight">Media Preflight</button>
@@ -155,6 +156,53 @@
       </div>
     </section>
 
+    <section class="panel main-panel" data-panel="compare" aria-label="Compare AFP" hidden>
+      <div class="panel-head"><h2>Compare AFP</h2></div>
+      <div class="compare-controls">
+        <label>Old AFP <select id="compare-left"></select></label>
+        <label>New AFP <select id="compare-right"></select></label>
+        <label>Text fallback <select id="compare-codepage"><option value="cp500">EBCDIC 500</option><option value="cp037">EBCDIC 037</option></select></label>
+        <button type="button" id="compare-run" class="primary">Compare</button>
+        <button type="button" id="compare-cancel" disabled>Cancel</button>
+      </div>
+      <p id="compare-status" class="panel-note" role="status">Open two AFP files to compare.</p>
+      <div id="compare-results" class="compare-results" hidden>
+        <div class="compare-controls">
+          <label>Show <select id="compare-filter"><option value="all">All pages</option><option value="changed">Changes</option><option value="unmatched">Unpaired pages</option><option value="unverified">Unverified</option><option value="text">Text</option><option value="position">Position</option><option value="size">Page size</option><option value="media">Media settings</option><option value="visual">Preview pixels</option></select></label>
+          <button type="button" id="compare-prev">Previous results</button>
+          <button type="button" id="compare-next">Next results</button>
+          <span id="compare-range" aria-live="polite"></span>
+          <label><input type="checkbox" id="compare-sync" checked> Sync view</label>
+          <button type="button" id="compare-visual">Show pixel difference</button>
+        </div>
+        <div id="compare-rows" class="compare-rows" aria-label="Page pairs"></div>
+        <div class="compare-controls">
+          <label>Old anchor <input type="number" id="compare-anchor-left" min="1"></label>
+          <label>New anchor <input type="number" id="compare-anchor-right" min="1"></label>
+          <button type="button" id="compare-anchor-add">Pair pages</button>
+          <span id="compare-anchors" aria-label="Manual page anchors"></span>
+        </div>
+        <div id="compare-row-detail" class="panel-note"></div>
+        <div class="compare-panes">
+          <div class="compare-side">
+            <div class="compare-controls"><label>Old page <input type="number" id="compare-page-left" min="1" disabled></label><button type="button" id="compare-zoom-out-left" aria-label="Zoom out old preview">−</button><button type="button" id="compare-zoom-in-left" aria-label="Zoom in old preview">+</button></div>
+            <div class="compare-stage" id="compare-stage-left" tabindex="0" aria-label="Old page preview"></div>
+          </div>
+          <div class="compare-side">
+            <div class="compare-controls"><label>New page <input type="number" id="compare-page-right" min="1" disabled></label><button type="button" id="compare-zoom-out-right" aria-label="Zoom out new preview">−</button><button type="button" id="compare-zoom-in-right" aria-label="Zoom in new preview">+</button></div>
+            <div class="compare-stage" id="compare-stage-right" tabindex="0" aria-label="New page preview"></div>
+          </div>
+        </div>
+        <figure id="compare-overlay" hidden><figcaption id="compare-overlay-caption"></figcaption><img id="compare-overlay-image" alt="Preview pixel differences highlighted in magenta"></figure>
+        <div class="compare-controls">
+          <label>Report path <input id="compare-output" type="text" placeholder="Full output path"></label>
+          <label><input id="compare-include-text" type="checkbox"> Include preview text excerpts</label>
+          <button type="button" id="compare-csv">Export CSV</button>
+          <button type="button" id="compare-xlsx">Export Excel</button>
+        </div>
+        <p class="panel-note">Studio preview comparison only. Actual printer media is unknown.</p>
+      </div>
+    </section>
     <section class="panel main-panel" data-panel="structure" hidden>
       <div class="panel-head">
         <h2>Structured fields</h2>
@@ -327,6 +375,7 @@
     <span id="status-cache"></span>
   </footer>
 
+  <script src="{{ url_for('static', filename='compare.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -59,10 +59,35 @@ def main():
         time.sleep(.1)
     assert job["state"] == "completed", job
     assert png.read_bytes().startswith(b"\x89PNG")
+    def completed(job):
+        for _ in range(100):
+            job = request("/api/jobs/" + job["id"])
+            if job["state"] in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(.1)
+        assert job["state"] == "completed", job
+        return job["result"]
+
+    copy = output / "comparison-source.afp"
+    copy.write_bytes(source.read_bytes())
+    other = completed(request("/api/documents/open", {"path": str(copy)})["job"])
+    comparison = completed(request("/api/comparisons", {
+        "left": document["document_id"], "right": other["document_id"],
+    })["job"])
+    comp_endpoint = "/api/comparisons/" + comparison["comparison_id"]
+    paired = request(comp_endpoint)
+    assert [(row["left"], row["right"]) for row in paired["items"]] == [(i, i) for i in range(1, 5)]
+    diff = completed(request(comp_endpoint + "/visual", {"row": 0, "revision": paired["revision"]})["job"])
+    assert diff["changed_pixels"] == 0
+    assert request(comp_endpoint + "/visual/1/0.png", raw=True).startswith(b"\x89PNG")
+    report = output / "frozen-comparison.xlsx"
+    request(comp_endpoint + "/export", {"format": "xlsx", "path": str(report), "revision": 1})
+    assert report.read_bytes().startswith(b"PK")
     assert hashlib.sha256(source.read_bytes()).hexdigest() == digest
     print(json.dumps({"frozen_startup_open": True, "pages": 4, "svg": True, "imm_timeline": True,
         "unresolved_without_profile": True, "java_disabled": True, "csv": True, "xlsx": True,
-        "png": True, "source_unchanged": True}))
+        "png": True, "source_unchanged": True, "comparison": True,
+        "comparison_overlay": True, "comparison_xlsx": True}))
 
 
 if __name__ == "__main__":

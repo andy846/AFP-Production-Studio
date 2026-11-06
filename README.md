@@ -50,6 +50,11 @@ before using any generated output in a production workflow.
   preview text, and candidate mailpieces when an evidenced customer rule is configured.
 * **Engineering** — verified byte-identical copy, same-length IMM/TLE edits,
   constrained complete-document extract/merge, and PDF/PNG/TIFF preview output.
+* **Compare** — open two AFPs, choose old and new in the Compare workspace,
+  and inspect page pairing, text, layout and media differences. Review uncertain
+  pairs, add or remove manual anchors, and request a pixel overlay for a selected
+  same-size pair. CSV and Excel reports include source hashes and verification
+  limits; preview text excerpts are opt-in.
 * **Batch** — local preflight of up to 20 files without retaining a session for
   each job or automatically rendering pages.
 * **Production evidence** — persistent manual records with separate pages,

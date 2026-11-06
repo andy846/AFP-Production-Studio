@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import json
 import hashlib
+import uuid
 from pathlib import Path
 from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request, session
 
 from afpstudio.document_model.model import DocumentStore, SourceChangedError
+from afpstudio.comparison import (Comparison, ComparisonError, collect, compare_rows,
+                                  comparison_report, visual_difference)
+from afpstudio.engineering.conversion import ConversionError
 from afpstudio.document_model.structure import build_structure_index
 from afpstudio.parser_adapters.alpheus import AlpheusAdapter
 from afpstudio.parser_adapters.contract import AdapterError
@@ -51,7 +55,12 @@ def _jobs():
 def _forget_document(document_id: str) -> bool:
     closed = _store().close(document_id)
     _jobs().discard_document(document_id)
+    _comparisons().discard(document_id)
     return closed
+
+
+def _comparisons():
+    return current_app.extensions["studio"]["comparisons"]
 
 
 def _profiles():
@@ -820,6 +829,238 @@ def engineering(document_id):
     except JobQueueFull as exc:
         return _error(str(exc), 429, "job_queue_full")
     return jsonify({"job": job.as_dict()})
+
+
+def _check_comparison_sources(store, documents):
+    for document in documents:
+        if store.get(document.document_id) is not document:
+            raise SourceChangedError("A comparison source is closed. Open both files again.")
+        document.check_sources()
+
+
+def _comparison(key):
+    registry = _comparisons()
+    with registry.lock:
+        item = registry.items.get(key)
+    if item is None:
+        return None, _error("Comparison is no longer available.", 404, "comparison_not_found")
+    try:
+        _check_comparison_sources(_store(), item.documents)
+    except SourceChangedError as exc:
+        with registry.lock:
+            registry.items.pop(key, None)
+        return None, _error(str(exc), 409, "source_changed")
+    return item, None
+
+
+@bp.post("/comparisons")
+@require_csrf
+def start_comparison():
+    body = request.get_json(silent=True) or {}
+    ids = (body.get("left"), body.get("right"))
+    codepage = body.get("codepage", "cp500")
+    if any(not isinstance(x, str) for x in ids) or ids[0] == ids[1] or codepage not in ("cp500", "cp037"):
+        return _error("Choose two different open documents and a supported code page.")
+    documents = []
+    for doc_id in ids:
+        document, error = _session_or_error(doc_id)
+        if error:
+            return error
+        documents.append(document)
+    store, registry = _store(), _comparisons()
+    key = uuid.uuid4().hex
+
+    def work(context):
+        def cleanup():
+            with registry.lock:
+                registry.items.pop(key, None)
+        context.on_cancel(cleanup)
+        evidence = []
+        for side, document in enumerate(documents):
+            _check_comparison_sources(store, documents)
+            evidence.append(collect(document, codepage, lambda page, total:
+                context.progress((side + page / max(1, total)) / 2,
+                                 f"Indexing {'old' if side == 0 else 'new'} page {page + 1} of {total}.")))
+        rows = compare_rows(*evidence, [])
+        context.check_cancelled()
+        with registry.lock:
+            _check_comparison_sources(store, documents)
+            registry.put(key, Comparison(tuple(documents), tuple(evidence), codepage, rows))
+        return {"comparison_id": key}
+
+    try:
+        job = _jobs().submit("compare-afp", "Compare AFP documents", work, related_document_ids=ids)
+    except JobQueueFull as exc:
+        return _error(str(exc), 429, "job_queue_full")
+    return jsonify({"job": job.as_dict()})
+
+
+@bp.get("/comparisons/<key>")
+def comparison_results(key):
+    item, error = _comparison(key)
+    if error:
+        return error
+    try:
+        offset = max(0, int(request.args.get("offset", 0)))
+        limit = min(100, max(1, int(request.args.get("limit", 50))))
+    except ValueError:
+        return _error("Invalid result range.")
+    mode = request.args.get("filter", "all")
+    if mode not in ("all", "changed", "unmatched", "unverified", "text", "position", "size", "media", "visual"):
+        return _error("Unknown comparison filter.")
+    with _comparisons().lock:
+        revision, anchors, rows = item.revision, item.anchors, item.rows
+        visuals = dict(item.visual_results)
+        image_row = item.visual[0] if item.visual else None
+
+    def matches(i, row):
+        changes = row["changes"]
+        return (mode == "all" or mode == "changed" and (changes or visuals.get(i, {}).get("changed_pixels"))
+                or mode == "unmatched" and (row["left"] is None or row["right"] is None)
+                or mode == "unverified" and (row["unknown"] or i not in visuals)
+                or mode in changes or mode == "media" and any("." in change for change in changes)
+                or mode == "visual" and visuals.get(i, {}).get("changed_pixels"))
+
+    filtered = [(i, row) for i, row in enumerate(rows) if matches(i, row)] if mode != "all" else None
+    selected = filtered[offset:offset + limit] if filtered is not None else enumerate(rows[offset:offset + limit], offset)
+    return jsonify({"sources": item.sources(), "revision": revision, "anchors": anchors,
+                    "total": len(filtered) if filtered is not None else len(rows),
+                    "total_rows": len(rows), "actual_media": "unknown",
+                    "items": [dict(row, id=i, visual=visuals.get(i), image_ready=i == image_row)
+                              for i, row in selected]})
+
+
+@bp.post("/comparisons/<key>/anchors")
+@require_csrf
+def comparison_anchors(key):
+    item, error = _comparison(key)
+    if error:
+        return error
+    body = request.get_json(silent=True) or {}
+    anchors = body.get("anchors")
+    if not isinstance(anchors, list) or len(anchors) > 1000 or any(
+        not isinstance(pair, list) or len(pair) != 2 or any(type(n) is not int for n in pair)
+        for pair in anchors
+    ):
+        return _error("Provide up to 1,000 pairs of page numbers.")
+    try:
+        rows = compare_rows(*item.evidence, anchors)
+    except ComparisonError as exc:
+        return _error(str(exc))
+    registry = _comparisons()
+    with registry.lock:
+        if registry.items.get(key) is not item or body.get("revision") != item.revision:
+            return _error("Comparison changed. Refresh the results.", 409, "comparison_changed")
+        item.anchors = sorted(anchors)
+        item.rows = rows
+        item.revision += 1
+        item.visual = None
+        item.visual_results = {}
+        return jsonify({"revision": item.revision})
+
+
+@bp.post("/comparisons/<key>/visual")
+@require_csrf
+def comparison_visual(key):
+    item, error = _comparison(key)
+    if error:
+        return error
+    body = request.get_json(silent=True) or {}
+    row_id = body.get("row")
+    registry, store = _comparisons(), _store()
+    with registry.lock:
+        revision = item.revision
+        if body.get("revision") != revision:
+            return _error("Comparison changed. Refresh the results.", 409, "comparison_changed")
+        if type(row_id) is not int or not 0 <= row_id < len(item.rows):
+            return _error("Choose a comparison row.")
+        row = item.rows[row_id]
+    if not row["left"] or not row["right"]:
+        return _error("Choose a row with pages on both sides.")
+    if row["left_size"] != row["right_size"] or not row["left_size"] or None in row["left_size"]:
+        return _error("Preview difference requires matching physical page dimensions.")
+
+    def work(context):
+        context.progress(.1, "Rendering preview difference.")
+        _check_comparison_sources(store, item.documents)
+        png, stats = visual_difference(*item.documents, row["left"], row["right"],
+                                       row["left_size"], store.cache, context.check_cancelled)
+        def commit():
+            with registry.lock:
+                _check_comparison_sources(store, item.documents)
+                if registry.items.get(key) is not item or revision != item.revision:
+                    raise ComparisonError("Comparison changed while rendering.")
+                item.visual = (row_id, png)
+                item.visual_results[row_id] = stats
+        context.publish(commit)
+        return stats
+
+    try:
+        job = _jobs().submit("compare-visual", "Render AFP preview difference", work,
+                             related_document_ids=tuple(doc.document_id for doc in item.documents))
+    except JobQueueFull as exc:
+        return _error(str(exc), 429, "job_queue_full")
+    return jsonify({"job": job.as_dict()})
+
+
+@bp.get("/comparisons/<key>/visual/<int:revision>/<int:row_id>.png")
+def comparison_visual_image(key, revision, row_id):
+    item, error = _comparison(key)
+    if error:
+        return error
+    with _comparisons().lock:
+        if revision != item.revision or not item.visual or item.visual[0] != row_id:
+            return _error("Preview difference is no longer available.", 404)
+        image = item.visual[1]
+    return current_app.response_class(image, mimetype="image/png", headers={"Cache-Control": "no-store"})
+
+
+@bp.post("/comparisons/<key>/export")
+@require_csrf
+def export_comparison(key):
+    item, error = _comparison(key)
+    if error:
+        return error
+    body = request.get_json(silent=True) or {}
+    fmt, raw_path = body.get("format"), body.get("path")
+    if fmt not in ("csv", "xlsx") or not isinstance(raw_path, str) or not raw_path.strip():
+        return _error("Choose a CSV or Excel output path.")
+    roots, store, registry = _config().allowed_roots(), _store(), _comparisons()
+    protected = {path for doc in item.documents for path in doc.source_signatures}
+    try:
+        safe_output_path(raw_path, roots)
+        target = safe_output_path(Path(raw_path).with_suffix("." + fmt), roots)
+        for path in protected:
+            safe_output_path(raw_path, roots, source=path)
+            safe_output_path(target, roots, source=path)
+        overwrite = body.get("overwrite") is True
+        if target.exists() and not overwrite:
+            raise FileExistsError()
+        with registry.lock:
+            revision = item.revision
+            if body.get("revision") != revision:
+                raise ComparisonError("Comparison changed. Refresh the results.")
+            rows, visuals = item.rows, dict(item.visual_results)
+        data = comparison_report(item.sources(), rows, item.codepage, fmt,
+                                 body.get("include_text") is True, visuals)
+
+        def publish(action):
+            with registry.lock:
+                if registry.items.get(key) is not item or item.revision != revision:
+                    raise ComparisonError("Comparison changed before export.")
+                _check_comparison_sources(store, item.documents)
+                store.publish_output(target, roots, action, sources=protected)
+
+        atomic_write_bytes(target, data, overwrite=overwrite, publisher=publish)
+    except FileExistsError:
+        return _error("Output exists; explicit replacement confirmation is required.", 409, "overwrite_required")
+    except (PathError, ValueError) as exc:
+        return _error(str(exc), 400, "invalid_path")
+    except SourceChangedError as exc:
+        return _error(str(exc), 409, "source_changed")
+    except OSError:
+        return _error("Could not write the comparison report.", 500, "io_error")
+    return jsonify({"path": str(target), "bytes": len(data)})
 
 
 @bp.post("/batch/preflight")

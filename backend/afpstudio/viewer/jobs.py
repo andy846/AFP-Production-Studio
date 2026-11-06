@@ -60,6 +60,7 @@ class Job:
     )
     finished: str | None = None
     document_id: str | None = None
+    related_document_ids: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -137,10 +138,12 @@ class JobManager:
         work: Callable[[JobContext], Any],
         *,
         document_id: str | None = None,
+        related_document_ids: tuple[str, ...] = (),
     ) -> Job:
         """Queue a job and return its handle."""
         job_id = uuid.uuid4().hex
-        job = Job(id=job_id, kind=kind, label=label, document_id=document_id)
+        job = Job(id=job_id, kind=kind, label=label, document_id=document_id,
+                  related_document_ids=related_document_ids)
         cancel = threading.Event()
         self.prune(keep=128)
         with self._lock:
@@ -247,7 +250,8 @@ class JobManager:
     def discard_document(self, document_id: str) -> None:
         """Cancel and remove document-owned jobs and their retained results."""
         with self._lock:
-            for job_id in [key for key, job in self._jobs.items() if job.document_id == document_id]:
+            for job_id in [key for key, job in self._jobs.items()
+                           if job.document_id == document_id or document_id in job.related_document_ids]:
                 event = self._cancel.pop(job_id, None)
                 if event is not None:
                     event.set()

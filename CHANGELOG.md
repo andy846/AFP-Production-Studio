@@ -2,6 +2,10 @@
 
 ## 0.3.0-dev — Unified Engine UAT
 
+- Compare two AFPs using unique page or text anchors and manual alignment.
+  Inspect text, layout and media differences, render a selected pixel overlay,
+  and export a local CSV or Excel comparison report.
+
 - Standard and explicit unspanned RDW opening with original offsets.
 - Document/group/TLE index, positioned text, and rule-based mailpiece candidates.
 - Viewer resolves supported embedded FOCA bitmap coded fonts from MCF format 1,
