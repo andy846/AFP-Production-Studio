@@ -61,6 +61,14 @@ def test_barcode_png_generates_requested_version() -> None:
     assert png.startswith(b"\x89PNG")
 
 
+def test_structured_append_is_not_silently_replaced_with_an_unrelated_qr():
+    data = bytearray(QR_BDA)
+    data[10] = 2
+    bar = parse_barcode(QR_BDD, bytes(data))
+    assert bar is not None and bar.unsupported_options
+    assert barcode_png(bar) is None
+
+
 def test_barcode_png_grows_when_version_too_small() -> None:
     bar = parse_barcode(QR_BDD, QR_BDA)
     bar.version = 1  # 21x21 cannot hold 500 digits

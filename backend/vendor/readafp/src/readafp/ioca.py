@@ -40,7 +40,7 @@ MAX_GROUP4_PIXELS = 64_000_000
 MAX_GROUP4_BYTES = 16 * 1024 * 1024
 
 
-def iter_sdfs(data: bytes) -> Iterator[Tuple[int, bytes]]:
+def iter_sdfs(data: bytes, *, issues=None) -> Iterator[Tuple[int, bytes]]:
     """Yield (code, params) self-defining fields from an image segment.
 
     Extended-format codes are yielded as 0xFExx so callers can tell
@@ -53,6 +53,8 @@ def iter_sdfs(data: bytes) -> Iterator[Tuple[int, bytes]]:
     while pos < len(data):
         if data[pos] == 0xFE:
             if pos + 4 > len(data):
+                if issues is not None:
+                    issues.append("An extended IOCA parameter is truncated.")
                 logger.warning("truncated extended SDF at offset %d", pos)
                 break
             code = 0xFE00 | data[pos + 1]
@@ -60,12 +62,16 @@ def iter_sdfs(data: bytes) -> Iterator[Tuple[int, bytes]]:
             pos += 4
         else:
             if pos + 2 > len(data):
+                if issues is not None:
+                    issues.append("An IOCA parameter header is truncated.")
                 break
             code = data[pos]
             length = data[pos + 1]
             pos += 2
         if length == 0 and code in (0xFE92, 0xFE9C):
             length = len(data) - pos
+        if pos + length > len(data) and issues is not None and len(issues) < 128:
+            issues.append("An IOCA parameter or image data field is truncated.")
         yield code, data[pos : pos + length]
         pos += length
 
@@ -84,6 +90,7 @@ class IocaImage:
     bands: Dict[int, bytes] = field(default_factory=dict)
     recording: int = 1  # RIDIC; only top-to-bottom is decoded for Group 4
     bit_order: int = 0
+    parse_issues: List[str] = field(default_factory=list)
 
 
 def parse_image_segment(data: bytes) -> Optional[IocaImage]:
@@ -92,7 +99,7 @@ def parse_image_segment(data: bytes) -> Optional[IocaImage]:
     bands: Dict[int, bytearray] = {}
     chunks = bytearray()
     seen = False
-    for code, params in iter_sdfs(data):
+    for code, params in iter_sdfs(data, issues=img.parse_issues):
         if code == 0x94 and len(params) >= 9:  # Image Size
             seen = True
             img.hres = int.from_bytes(params[1:3], "big")

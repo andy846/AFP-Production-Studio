@@ -2,6 +2,18 @@
 
 ## 0.3.1 — Unreleased
 
+- Incomplete previews are explicitly labelled and their issue panel opens
+  automatically. Issues identify unavailable resources, invalid data,
+  unsupported content and approximations; source offsets link to Structure.
+- Detect additional silent omissions: unknown fields, flagged fields,
+  truncated PTOCA/GOCA/IOCA, incomplete objects/resources and browser image
+  decode failures. QR structured append is rejected instead of replaced by
+  a different standalone QR symbol.
+- GOCA objects without OBD dimensions use declared GDD resolution where
+  available, preventing otherwise valid vector content from becoming invisible.
+- Desktop startup waits for native bridge methods before consuming a file,
+  preventing an intermittent failure when launching an AFP directly.
+
 - Display compatibility audit: additional Group 3, TIFF algorithm 2, PackBits
   and LZW image decoding; supported bottom-up raster and bit-order handling.
 - Page segments now compose text and supported graphical content. Nested

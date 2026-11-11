@@ -227,7 +227,9 @@
   // path; opening and exporting still go through the ordinary HTTP
   // API, where the path checks apply.
   function nativeApi() {
-    if (window.pywebview && window.pywebview.api) return window.pywebview.api;
+    const api = window.pywebview?.api;
+    // pywebview creates the API object before it installs the methods.
+    if (typeof api?.consume_startup_file === "function") return api;
     return null;
   }
 
@@ -240,15 +242,23 @@
       callback();
       return;
     }
-    window.addEventListener("pywebviewready", () => callback(), { once: true });
+    let handled = false;
+    let poll;
+    const ready = () => {
+      if (handled || !nativeApi()) return;
+      handled = true;
+      clearInterval(poll);
+      window.removeEventListener("pywebviewready", ready);
+      callback();
+    };
+    window.addEventListener("pywebviewready", ready);
     // Some versions install the bridge without announcing it, so the
     // check is repeated for a short while.
     let attempts = 0;
-    const poll = setInterval(() => {
+    poll = setInterval(() => {
       attempts += 1;
       if (nativeApi()) {
-        clearInterval(poll);
-        callback();
+        ready();
       } else if (attempts > 40) {
         clearInterval(poll);
       }
@@ -1081,13 +1091,28 @@
     list.replaceChildren();
     let issues = [];
     try { issues = JSON.parse(svg?.getAttribute("data-render-issues") || "[]"); }
-    catch (_) { issues = [{message: "Preview diagnostics could not be read."}]; }
-    if (!Array.isArray(issues)) issues = [];
+    catch (_) { issues = [{impact: "omission", category: "invalid_data", message: "Preview diagnostics could not be read."}]; }
+    if (!Array.isArray(issues)) issues = [{impact: "omission", category: "invalid_data", message: "Preview diagnostics have an invalid format."}];
     panel.hidden = !issues.length;
-    $("render-warning-summary").textContent = "Preview limitations (" + issues.length + ") — review before relying on this view";
+    const incomplete = issues.some(issue => issue.impact !== "approximation");
+    panel.dataset.state = incomplete ? "incomplete" : "approximate";
+    panel.open = incomplete;
+    $("render-warning-summary").textContent = (incomplete ? "Incomplete preview" : "Approximate preview") +
+      " — page " + state.page + " (" + issues.length + " issues)";
+    const categories = {external_resource: "Resource unavailable", invalid_data: "Invalid/truncated data",
+      unsupported: "Unsupported/unverified content", approximation: "Approximation", text_mapping: "Text mapping"};
     issues.slice(0, 128).forEach(issue => {
       const line = document.createElement("li");
-      line.textContent = issue.message + (Number.isInteger(issue.offset) ? " — field offset " + issue.offset : "");
+      line.textContent = (categories[issue.category] || "Display issue") + ": " + issue.message +
+        (Number.isInteger(issue.offset) ? " — field offset " + issue.offset : "");
+      if (Number.isInteger(issue.offset)) {
+        const inspect = document.createElement("button");
+        inspect.type = "button";
+        inspect.className = "ghost small";
+        inspect.textContent = "Inspect field";
+        inspect.addEventListener("click", () => inspectRenderField(issue.offset));
+        line.appendChild(inspect);
+      }
       list.appendChild(line);
     });
   }
@@ -1130,7 +1155,20 @@
       const svg = await response.text();
       if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
       holder.innerHTML = svg;
-      showRenderWarnings(holder.querySelector("svg"));
+      const root = holder.querySelector("svg");
+      showRenderWarnings(root);
+      root?.querySelectorAll("image").forEach(image => image.addEventListener("error", () => {
+        if (requestId !== pageRequest || state.document?.document_id !== documentId) return;
+        let issues = [];
+        try { issues = JSON.parse(root.getAttribute("data-render-issues") || "[]"); } catch (_) {}
+        if (!issues.some(issue => issue.code === "BROWSER_IMAGE_FAILED")) {
+          issues.push({code: "BROWSER_IMAGE_FAILED", category: "invalid_data", impact: "omission",
+            offset: null, message: "The browser could not display an embedded image on this page."});
+          root.setAttribute("data-render-issues", JSON.stringify(issues));
+          root.setAttribute("data-preview-status", "incomplete");
+          showRenderWarnings(root);
+        }
+      }, {once: true}));
       $("viewer-empty").hidden = true;
       // The first page is fitted to the stage; after that the operator's
       // own zoom is kept.
@@ -1161,9 +1199,25 @@
   /* structure                                                           */
   /* ------------------------------------------------------------------ */
 
+  let structureRequest = 0;
+  async function inspectRenderField(offset) {
+    if (!state.document) return;
+    const id = state.document.document_id;
+    document.querySelector('[data-tab="structure"]').click();
+    const request = ++structureRequest;
+    try {
+      const data = await api("/api/documents/" + id + "/fields?at_offset=" + offset + "&limit=11");
+      if (request !== structureRequest || state.document?.document_id !== id || state.tab !== "structure") return;
+      renderStructure(data.fields, data.total);
+      const row = $("structure-table").querySelector('tr[data-offset="' + offset + '"]');
+      if (row) { row.classList.add("is-selected"); row.scrollIntoView({block: "nearest"}); row.focus(); }
+    } catch (err) { setStatus(err.message); }
+  }
+
   async function loadStructurePage(page) {
     if (!state.document) return;
     const documentId = state.document.document_id;
+    const request = ++structureRequest;
     const url =
       "/api/documents/" +
       state.document.document_id +
@@ -1171,7 +1225,7 @@
       (page - 1);
     try {
       const payload = await api(url);
-      if (!state.document || state.document.document_id !== documentId || state.page !== page) return;
+      if (request !== structureRequest || !state.document || state.document.document_id !== documentId || state.page !== page) return;
       renderStructure(payload.fields, payload.total);
     } catch (err) {
       setStatus(err.message);

@@ -203,7 +203,7 @@ def _vector_graphic_markup(vg: VectorGraphic) -> str:
 
 def page_to_svg(page: Page) -> str:
     """Build an SVG document string for one page."""
-    issues = list(page.render_issues)
+    issues = [dict(issue) for issue in page.render_issues]
     if page.coded_text_incomplete:
         issues.append({"code": "GLYPH_OR_TEXT_MAPPING_INCOMPLETE", "offset": None,
                        "message": "Some glyphs have no reliable text mapping or are unavailable. Check the source fonts."})
@@ -212,7 +212,27 @@ def page_to_svg(page: Page) -> str:
     if any(note.cat in ("font", "glyph", "codepage") for run in page.texts for note in run.notes):
         issues.append({"code": "FONT_OR_TEXT_APPROXIMATION", "offset": None,
                        "message": "Font substitutions or text decoding approximations affect this preview."})
-    issue_attr = (" data-render-issues=" + quoteattr(json.dumps(issues, separators=(",", ":")))) if issues else ""
+    if len(issues) > 128:
+        issues = issues[:127] + [{"code": "ADDITIONAL_RENDER_ISSUES", "offset": None,
+                                 "message": "More display issues exist than can be listed in this preview."}]
+    for issue in issues:
+        code = issue["code"]
+        if code.startswith("MISSING_"):
+            category = "external_resource"
+        elif "MALFORMED" in code or code in ("UNCLOSED_OBJECT", "UNCLOSED_RESOURCE", "IMAGE_DATA_PARTIAL"):
+            category = "invalid_data"
+        elif "APPROXIMATION" in code:
+            category = "approximation"
+        elif code == "GLYPH_OR_TEXT_MAPPING_INCOMPLETE":
+            category = "text_mapping"
+        else:
+            category = "unsupported"
+        issue["category"] = category
+        issue["impact"] = "approximation" if category in ("approximation", "text_mapping") else "omission"
+    status = "incomplete" if any(issue["impact"] == "omission" for issue in issues) else "approximate" if issues else "not_verified"
+    issue_attr = ' data-preview-status="' + status + '"'
+    if issues:
+        issue_attr += " data-render-issues=" + quoteattr(json.dumps(issues, separators=(",", ":")))
     parts: List[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {page.width} {page.height}" '

@@ -49,6 +49,7 @@ class BarCode:
     ec_level: int = 0  # QR: 0-3 = L M Q H
     x: int = 0  # symbol origin within the object area, in BSD units
     y: int = 0
+    unsupported_options: bool = False
 
 
 def parse_barcode(bdd: bytes, bda: bytes) -> Optional[BarCode]:
@@ -79,19 +80,25 @@ def parse_barcode(bdd: bytes, bda: bytes) -> Optional[BarCode]:
     x = int.from_bytes(bda[1:3], "big")
     y = int.from_bytes(bda[3:5], "big")
     version = ec_level = 0
+    unsupported_options = False
     payload = bda[5:]
     codec = "ascii"
+    if bc_type == TYPE_QR and len(bda) < 14:
+        return None
     if bc_type == TYPE_QR and len(bda) >= 14:
         # QR special-function parameters (Table 31): control flags(5)
         # conversion(6) version(7) error correction(8) sequence(9)
         # total(10) parity(11) special flags(12) application(13) data(14-).
         if bda[5] & 0x80:  # EBCDIC-to-ASCII translation requested
-            codec = _CONVERSION_CODECS.get(bda[6], "cp500")
+            codec = _CONVERSION_CODECS.get(bda[6])
+            if codec is None:
+                return None
+        if bda[7] > 40 or bda[8] > 3:
+            return None
         version = bda[7] if bda[7] <= 40 else 0
         ec_level = bda[8] if bda[8] <= 3 else 0
         if bda[10]:
-            logger.info("QR structured append not supported; "
-                        "rendering symbol %d/%d alone", bda[9], bda[10])
+            unsupported_options = True
         payload = bda[14:]
     elif bc_type == TYPE_DATA_MATRIX and len(bda) >= 15:
         # Data Matrix special-function parameters (Table 23) run bytes
@@ -102,11 +109,12 @@ def parse_barcode(bdd: bytes, bda: bytes) -> Optional[BarCode]:
     try:
         data = payload.decode(codec)
     except (UnicodeDecodeError, LookupError):
-        data = payload.decode("latin-1")
+        return None
     return BarCode(
         bc_type=bc_type, modifier=modifier, upi=upi or 1440,
         module_mils=module_mils, data=data, version=version,
         ec_level=ec_level, x=x, y=y,
+        unsupported_options=unsupported_options,
     )
 
 
@@ -123,6 +131,8 @@ def barcode_png(bar: BarCode) -> Optional[Tuple[bytes, int]]:
         else:
             logger.info("bar code type 0x%02X not supported", bar.bc_type)
         return None
+    if bar.unsupported_options:
+        return None
     error = _EC_LEVELS[bar.ec_level]
     try:
         qr = segno.make_qr(bar.data, version=bar.version or None,
@@ -133,10 +143,10 @@ def barcode_png(bar: BarCode) -> Optional[Tuple[bytes, int]]:
         try:
             qr = segno.make_qr(bar.data, error=error, boost_error=False)
         except (segno.DataOverflowError, ValueError) as exc:
-            logger.warning("cannot encode QR data: %s", exc)
+            logger.warning("Cannot encode QR data with the supported options.")
             return None
     except ValueError as exc:
-        logger.warning("cannot encode QR data: %s", exc)
+        logger.warning("Cannot encode QR data with the supported options.")
         return None
     matrix = qr.matrix
     n = len(matrix)

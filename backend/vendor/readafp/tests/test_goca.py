@@ -42,6 +42,24 @@ def _begin_segment(drawing_orders: bytes) -> bytes:
     return bytes([0x70, 0x0C]) + params + drawing_orders
 
 
+def test_truncated_order_is_reported_even_when_other_lines_render():
+    issues = []
+    orders = b"\xc1\x08" + struct.pack(">hhhh", 0, 0, 100, 100) + b"\xc1\x08\x00"
+    graphic = draw_goca(_gdd_bytes(), _begin_segment(orders), issues=issues)
+    assert graphic is not None
+    assert any("truncated" in message.lower() for message in issues)
+
+
+def test_goca_without_obd_uses_declared_gdd_resolution():
+    raw = (_sf(0xD3A8A8) + _sf(0xD3A8AF) + _sf(0xD3A8BB)
+           + _sf(0xD3A6BB, _gdd_bytes())
+           + _sf(0xD3EEBB, _begin_segment(b"\xc1\x08" + struct.pack(">hhhh", 0, 0, 100, 100)))
+           + _sf(0xD3A9BB) + _sf(0xD3A9AF) + _sf(0xD3A9A8))
+    page, = extract_pages(list(iter_fields(raw)))
+    graphic, = page.graphics
+    assert (graphic.width, graphic.height) == (14400, 11520)
+
+
 def _gdd_bytes() -> bytes:
     """GDD with 0xF6 Window Specification: GPS 1000×800, 100 units/inch."""
     # 0xF6 parameter: FLAGS(1) RES3(1) CFORMAT(1) UBASE(1) XRESOL(2) YRESOL(2)

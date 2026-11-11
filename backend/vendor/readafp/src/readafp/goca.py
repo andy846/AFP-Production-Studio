@@ -93,7 +93,7 @@ def _order_format(code: int) -> str:
 # Drawing-order iterator
 # ---------------------------------------------------------------------------
 
-def iter_orders(data: bytes) -> Iterator[Tuple[int, bytes]]:
+def iter_orders(data: bytes, *, issues=None) -> Iterator[Tuple[int, bytes]]:
     """Yield ``(order_code, params)`` from concatenated GAD data bytes.
 
     The GAD byte stream contains one or more Begin Segment commands
@@ -103,21 +103,30 @@ def iter_orders(data: bytes) -> Iterator[Tuple[int, bytes]]:
     """
     pos = 0
     n = len(data)
+    def report(message):
+        if issues is not None and len(issues) < 128 and message not in issues:
+            issues.append(message)
     while pos < n:
         code = data[pos]
         if code != 0x70:
+            report("Unrecognized GOCA segment bytes were skipped.")
             logger.debug("skipping unexpected byte 0x%02X at GAD offset %d", code, pos)
             pos += 1
             continue
         # Begin Segment: code(1) + param_length(1=12) + params(12)
         # params: NAME(4) FLAG1(1) FLAG2(1) SEGL(2) P/SNAME(4)
         if pos + 14 > n:
+            report("A GOCA segment header is truncated.")
             break
+        if data[pos + 1] != 12:
+            report("A GOCA segment header format is unsupported.")
         flag2 = data[pos + 7]
         unchained = bool(flag2 & 0x80)  # bit 0 (MSB) set → unchained → ignore
         segl = struct.unpack_from(">H", data, pos + 8)[0]
         pos += 14
         seg_end = min(pos + segl, n)
+        if pos + segl > n:
+            report("A GOCA segment is truncated.")
         if unchained:
             pos = seg_end
             continue
@@ -130,29 +139,34 @@ def iter_orders(data: bytes) -> Iterator[Tuple[int, bytes]]:
                 pos += 1
             elif fmt == "fixed2":
                 if pos + 2 > seg_end:
+                    report("A GOCA drawing order is truncated.")
                     pos = seg_end
                     break
                 yield oc, bytes(data[pos + 1 : pos + 2])
                 pos += 2
             elif fmt == "long":
                 if pos + 2 > seg_end:
+                    report("A GOCA drawing order is truncated.")
                     pos = seg_end
                     break
                 length = data[pos + 1]
                 end = pos + 2 + length
                 if end > seg_end:
+                    report("A GOCA drawing order is truncated.")
                     pos = seg_end
                     break
                 yield oc, bytes(data[pos + 2 : end])
                 pos = end
             else:  # extended 0xFE
                 if pos + 4 > seg_end:
+                    report("An extended GOCA drawing order is truncated.")
                     pos = seg_end
                     break
                 qualifier = data[pos + 1]
                 ext_len = struct.unpack_from(">H", data, pos + 2)[0]
                 ext_end = pos + 4 + ext_len
                 if ext_end > seg_end:
+                    report("An extended GOCA drawing order is truncated.")
                     pos = seg_end
                     break
                 yield (0xFE00 | qualifier), bytes(data[pos + 4 : ext_end])
@@ -758,6 +772,7 @@ class GocaGraphic:
     svg: str        # SVG <g> fragment with GPS-unit coordinates (Y flipped)
     gps_w: int      # GPS window width
     gps_h: int      # GPS window height
+    units_per_inch: float = 0
 
 
 def draw_goca(gdd_data: bytes, gad_data: bytes, *, issues=None) -> Optional[GocaGraphic]:
@@ -786,7 +801,7 @@ def draw_goca(gdd_data: bytes, gad_data: bytes, *, issues=None) -> Optional[Goca
                0x91, 0xD1, 0x92, 0x93, 0xA0, 0xDE, 0xDF, 0xFEDC, 0xFEDD}
     reported = set()
 
-    for code, params in iter_orders(gad_data):
+    for code, params in iter_orders(gad_data, issues=issues):
         if code in skipped and code not in reported and issues is not None:
             reported.add(code)
             issues.append(f"GOCA drawing order 0x{code:04X} is not fully supported.")
@@ -802,7 +817,7 @@ def draw_goca(gdd_data: bytes, gad_data: bytes, *, issues=None) -> Optional[Goca
     svg = "".join(ctx.out)
     if not svg:
         return None
-    return GocaGraphic(svg=svg, gps_w=gps_w, gps_h=gps_h)
+    return GocaGraphic(svg=svg, gps_w=gps_w, gps_h=gps_h, units_per_inch=gps_upi)
 
 
 def _dispatch(ctx: GocaContext, code: int, params: bytes) -> None:  # noqa: C901

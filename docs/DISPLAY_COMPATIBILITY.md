@@ -22,6 +22,18 @@ Pass is not proof of complete rendering or equivalence to a production RIP.
 Warnings retain original structured field offsets where available. Resource
 warnings follow referenced resources into the page. The SVG also carries the
 diagnostics, so a warning is not lost merely because the page was cached.
+The Viewer marks recognized omissions as **Incomplete preview** and opens the
+issue list automatically. Font or text-mapping approximations have a separate
+**Approximate preview** state. **Inspect field** locates the original field,
+including document-level resource definitions. Media preflight status is
+independent of display completeness.
+
+Diagnostics include truncated PTOCA, GOCA and IOCA data, unknown or flagged
+structured fields, incomplete object/resource scopes, failed browser image
+decoding and missing shapes. If the diagnostic limit is reached, a further
+notice is retained instead of silently dropping all subsequent problems.
+An SVG without known issues is labelled internally as not independently
+verified, not as production-complete.
 These diagnostics describe observed limitations, not an exhaustive validator
 for every AFP architecture or every malformed drawing command.
 
@@ -50,6 +62,15 @@ licensed corpus. This verifies consistency of the two Studio paths; both use
 the same renderer and this does not establish independent RIP fidelity.
 Synthetic tests exercise image pixel polarity, compression, row order,
 dimensions, resource composition, warnings and malformed/unsupported data.
+
+The completeness-diagnostics update was verified locally on Windows with
+358 Studio tests passing and 247 vendored readAFP tests passing (11 skipped,
+three expected failures). The frozen EXE opened a synthetic AFP directly,
+expanded the incomplete-preview panel, showed resource/unsupported/invalid
+categories, located the source field and cleared warnings on the next clean
+page, with no JavaScript page errors. Closing the window exited the application
+and removed its extracted bundle directory. These checks do not establish
+production RIP equivalence.
 
 Still requiring further implementation or independent evidence:
 

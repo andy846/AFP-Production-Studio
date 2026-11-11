@@ -24,7 +24,7 @@ from readafp.foca import Font, Glyph, parse_code_page, parse_fonts, scan_coded_f
 from readafp.gcgid import bridge_code_page
 from readafp.goca import GocaGraphic, draw_goca
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
-from readafp.parser import StructuredField
+from readafp.parser import StructuredField, SF_NAMES
 from readafp.triplets import (
     codec_for_codepage_name,
     iter_triplets,
@@ -243,7 +243,7 @@ class Page:
         return "".join(lines)
 
 
-def iter_control_sequences(data: bytes) -> Iterator[ControlSequence]:
+def iter_control_sequences(data: bytes, *, issues=None) -> Iterator[ControlSequence]:
     """Yield PTOCA control sequences from PTX field data.
 
     Malformed tails are logged and skipped rather than raised: a partial
@@ -255,13 +255,21 @@ def iter_control_sequences(data: bytes) -> Iterator[ControlSequence]:
         if not chained:
             esc = data.find(ESCAPE, pos)
             if esc < 0:
+                if issues is not None and data[pos:].strip(b"\x00\x40"):
+                    issues.append("Unrecognized bytes were skipped in presentation text.")
                 break
+            if issues is not None and data[pos:esc].strip(b"\x00\x40"):
+                issues.append("Unrecognized bytes were skipped before a text control sequence.")
             pos = esc + 2
         if pos + 2 > len(data):
+            if issues is not None:
+                issues.append("A presentation-text control sequence is truncated.")
             logger.warning("truncated control sequence at offset %d", pos)
             break
         length, cs_type = data[pos], data[pos + 1]
         if length < 2 or pos + length > len(data):
+            if issues is not None:
+                issues.append("A presentation-text control sequence has an invalid length.")
             logger.warning(
                 "bad control sequence length %d at offset %d", length, pos
             )
@@ -639,6 +647,9 @@ class _TextState:
             # gives 240; FOP emits 240/inch where 12pt is just 40).
             cp = self.font_codepages.get(self.font_id, self.codepage)
             text, n_stripped, used_codec, n_sub = _decode_trn_counted(p, cp)
+            if n_stripped or n_sub:
+                _render_issue(page, "TEXT_NOT_FULLY_RENDERED", self.field_offset,
+                              "Some characters could not be decoded or displayed as requested.")
             if (
                 self.wrap_width is not None
                 and self.i > 0
@@ -829,6 +840,8 @@ class _TextState:
             # A visible placeholder, never decode either half of a DBCS pair
             # with the document's single-byte fallback.
             page.coded_text_incomplete = True
+            _render_issue(page, "GLYPH_NOT_RENDERED", self.field_offset,
+                          "An embedded character shape is unavailable; a placeholder is shown.")
             x, y = ((ox, oy + round(dx)) if self.orientation in (90, 270)
                     else (ox + round(dx), oy))
             page.texts.append(TextRun(
@@ -1159,12 +1172,16 @@ def _parse_obp(data: bytes) -> Tuple[int, int]:
 
 
 def _finish_image_object(
-    ipd: bytes, obd: Optional[bytes], obp: Optional[bytes]
+    ipd: bytes, obd: Optional[bytes], obp: Optional[bytes], *, issues=None
 ) -> Optional[_ImageObject]:
     """Decode a completed BIM...EIM capture into a placeable object."""
     segment = parse_image_segment(ipd)
     if segment is None:
+        if issues is not None:
+            issues.append("The image stream is empty, malformed or has no supported content.")
         return None
+    if issues is not None:
+        issues.extend(segment.parse_issues)
     bands: Optional[List[bytes]] = None
     blob = image_blob(segment)
     if blob is not None:
@@ -1172,6 +1189,8 @@ def _finish_image_object(
     else:
         bands = cmyk_jpeg_bands(segment)
         if bands is None:
+            if issues is not None:
+                issues.append(f"Image encoding 0x{segment.compression:02X}, {segment.bits} bits per element, could not be decoded safely.")
             logger.info(
                 "skipping IOCA image: compression 0x%02X, %d bits/IDE "
                 "not decoded",
@@ -1187,6 +1206,8 @@ def _finish_image_object(
         upi = segment.hres // 10 or None
         width, height = segment.width, segment.height
     if width <= 0 or height <= 0:
+        if issues is not None:
+            issues.append("The image has no usable declared dimensions.")
         return None
     x, y = _parse_obp(obp) if obp else (0, 0)
     return _ImageObject(
@@ -1308,8 +1329,13 @@ def _render_issue(page, code, offset, message):
     if page is None:
         return
     item = {"code": code, "offset": offset, "message": message}
-    if len(page.render_issues) < 128 and item not in page.render_issues:
+    if item in page.render_issues:
+        return
+    if len(page.render_issues) < 127:
         page.render_issues.append(item)
+    elif not any(issue["code"] == "ADDITIONAL_RENDER_ISSUES" for issue in page.render_issues):
+        page.render_issues.append({"code": "ADDITIONAL_RENDER_ISSUES", "offset": offset,
+                                  "message": "Additional display issues exceed the diagnostic limit; inspect the source."})
 
 
 def extract_pages(
@@ -1408,8 +1434,43 @@ def extract_pages(
     in_graphic = False
     graphic_gdd = b""
     graphic_gads: List[bytes] = []
+    object_starts = {}
+    document_issues = Page()
+    known_extra_fields = {0xD3B15F, 0xD3A88A, 0xD3A78A, 0xD38C8A, 0xD3A98A,
+                          0xD3A8C5, 0xD3A6C5, 0xD3B1DF, 0xD3A9C5}
 
     for f in fields:
+        if f.sf_id == 0xD3A9AF:
+            while captures:
+                abandoned = current
+                current, state, in_overlay, overlay_name, segment_name, _ = captures.pop()
+                target = current if current is not None else document_issues
+                if abandoned is not None:
+                    for issue in abandoned.render_issues:
+                        _render_issue(target, issue["code"], issue["offset"], issue["message"])
+                _render_issue(target, "UNCLOSED_RESOURCE", f.offset,
+                              "A resource definition was not closed before the page ended; its content is unverified.")
+        owner = current if current is not None else document_issues
+        if f.sf_id not in SF_NAMES and f.sf_id not in known_extra_fields:
+            _render_issue(owner, "UNKNOWN_STRUCTURED_FIELD", f.offset,
+                          f"Structured field 0x{f.sf_id:06X} is not recognized; its effect on display is unverified.")
+        if f.flags:
+            _render_issue(owner, "FIELD_FLAGS_UNVERIFIED", f.offset,
+                          "Structured-field flags/extensions are not fully interpreted by the preview.")
+        if f.sf_id == 0xD3A6AF and len(f.data) < 12:
+            _render_issue(owner, "MALFORMED_DESCRIPTOR", f.offset, "A page descriptor is truncated.")
+        if f.sf_id in (0xD3A9AF, 0xD3A95F, 0xD3A9DF):
+            for kind, start in object_starts.items():
+                _render_issue(owner, "UNCLOSED_OBJECT", start,
+                              f"A {kind} object was not completed; its content may be missing.")
+            object_starts.clear()
+            in_image = in_graphic = in_barcode = False
+        if f.sf_id in (0xD3A8FB, 0xD3A8BB, 0xD3A8EB) and object_starts:
+            for kind, start in object_starts.items():
+                _render_issue(owner, "UNCLOSED_OBJECT", start,
+                              f"A {kind} object was interrupted by another object.")
+            object_starts.clear()
+            in_image = in_graphic = in_barcode = False
         if f.sf_id == 0xD3A892:  # BOC opens an object container resource
             container = f.token_name
         elif f.sf_id == 0xD3A992:  # EOC
@@ -1440,16 +1501,22 @@ def extract_pages(
         elif f.sf_id == 0xD3A9CE:  # ERS
             resource_name = None
         elif f.sf_id == 0xD3A8FB:  # BIM starts an image object capture
+            object_starts["image"] = f.offset
             in_image = True
             image_ipd = bytearray()
             image_obd = image_obp = None
             image_name = f.token_name
         elif f.sf_id == 0xD3A9FB and in_image:  # EIM completes it
+            object_starts.pop("image", None)
             in_image = False
-            obj = _finish_image_object(bytes(image_ipd), image_obd, image_obp)
+            decode_issues = []
+            obj = _finish_image_object(bytes(image_ipd), image_obd, image_obp, issues=decode_issues)
             if obj is None:
-                message = "An image could not be decoded or placed; its encoding, geometry or data is unsupported or invalid."
-                _render_issue(current, "IMAGE_NOT_RENDERED", f.offset, message)
+                message = " ".join(decode_issues) or "An image could not be decoded or placed."
+                _render_issue(owner, "IMAGE_NOT_RENDERED", f.offset, message)
+            else:
+                for message in decode_issues:
+                    _render_issue(owner, "IMAGE_DATA_PARTIAL", f.offset, message)
             if obj is not None:
                 if current is not None:  # inline: place on the page now
                     current.images.append(
@@ -1479,6 +1546,7 @@ def extract_pages(
         elif in_image and f.sf_id == 0xD3EEFB:  # IPD: IOCA segment bytes
             image_ipd += f.data
         elif f.sf_id == 0xD3A8EB:  # BBC starts a bar code object
+            object_starts["barcode"] = f.offset
             in_barcode = True
             barcode_bdd = b""
             barcode_bdas = []
@@ -1488,8 +1556,12 @@ def extract_pages(
         elif in_barcode and f.sf_id == 0xD3EEEB:  # BDA: one symbol each
             barcode_bdas.append(f.data)
         elif f.sf_id == 0xD3A9EB and in_barcode:  # EBC completes it
+            object_starts.pop("barcode", None)
             in_barcode = False
             if current is not None:
+                if not barcode_bdas:
+                    _render_issue(current, "BARCODE_NOT_RENDERED", f.offset,
+                                  "A barcode object contains no readable symbol data.")
                 ox, oy = _parse_obp(image_obp) if image_obp else (0, 0)
                 upi = current.units_per_inch
                 for bda in barcode_bdas:
@@ -1514,6 +1586,7 @@ def extract_pages(
                         )
                     )
         elif f.sf_id == 0xD3A8BB:  # BGR starts a graphics object
+            object_starts["graphic"] = f.offset
             in_graphic = True
             graphic_gdd = b""
             graphic_gads = []
@@ -1523,6 +1596,7 @@ def extract_pages(
         elif in_graphic and f.sf_id == 0xD3EEBB:  # GAD: drawing order stream
             graphic_gads.append(f.data)
         elif f.sf_id == 0xD3A9BB and in_graphic:  # EGR completes it
+            object_starts.pop("graphic", None)
             in_graphic = False
             if current is not None:
                 goca_issues = []
@@ -1535,9 +1609,16 @@ def extract_pages(
                     upi = current.units_per_inch
                     ow = _scale(obd[1], obd[0] or upi, upi)
                     oh = _scale(obd[2], obd[0] or upi, upi)
-                    current.graphics.append(
-                        VectorGraphic(x=ox, y=oy, width=ow, height=oh, graphic=goca)
-                    )
+                    if (ow <= 0 or oh <= 0) and goca.units_per_inch > 0:
+                        ow = round(goca.gps_w * upi / goca.units_per_inch)
+                        oh = round(goca.gps_h * upi / goca.units_per_inch)
+                    if ow > 0 and oh > 0:
+                        current.graphics.append(
+                            VectorGraphic(x=ox, y=oy, width=ow, height=oh, graphic=goca)
+                        )
+                    else:
+                        _render_issue(current, "GRAPHIC_NOT_RENDERED", f.offset,
+                                      "A vector graphic has no usable declared display size.")
                 else:
                     _render_issue(current, "GRAPHIC_NOT_RENDERED", f.offset, "A vector graphic could not be decoded.")
         elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
@@ -1549,7 +1630,9 @@ def extract_pages(
             else:
                 _render_issue(current, "OBJECT_NOT_RENDERED", f.offset,
                               "An included object is missing or cannot be rendered.")
-        elif f.sf_id == 0xD3AF5F and current is not None and len(f.data) >= 14:  # IPS
+        elif f.sf_id == 0xD3AF5F and current is not None and len(f.data) < 14:
+            _render_issue(current, "MALFORMED_INCLUDE", f.offset, "An Include Page Segment field is truncated.")
+        elif f.sf_id == 0xD3AF5F and current is not None:  # IPS
             name = f.data[:8].decode("cp500").strip()
             x = int.from_bytes(f.data[8:11], "big", signed=True)
             y = int.from_bytes(f.data[11:14], "big", signed=True)
@@ -1562,10 +1645,13 @@ def extract_pages(
         elif f.sf_id == 0xD3ABD8:  # MPO: map overlay local id -> name
             mpo_map.update(_parse_mpo(f.data))
         elif f.sf_id == 0xD3AFD8 and current is not None:  # IPO: place overlay
-            if _resolve_overlay(f.data, overlays, mpo_map) is None:
+            if len(f.data) < 14:
+                _render_issue(current, "MALFORMED_INCLUDE", f.offset, "An Include Page Overlay field is truncated.")
+            elif _resolve_overlay(f.data, overlays, mpo_map) is None:
                 _render_issue(current, "MISSING_OVERLAY", f.offset,
                               "An included overlay has no supported embedded definition.")
-            _include_overlay(current, overlays, mpo_map, f.data)
+            if len(f.data) >= 14:
+                _include_overlay(current, overlays, mpo_map, f.data)
         elif f.sf_id == 0xD3A8DF:  # BMO: capture an overlay like a page
             captures.append((current, state, in_overlay, overlay_name, segment_name, "overlay"))
             current = Page()
@@ -1741,8 +1827,11 @@ def extract_pages(
             else:
                 target, target_state = current, state
             target_state.field_offset = f.offset
-            for cs in iter_control_sequences(f.data):
+            text_issues = []
+            for cs in iter_control_sequences(f.data, issues=text_issues):
                 target_state.apply(cs, target)
+            for message in text_issues:
+                _render_issue(target, "PTOCA_MALFORMED", f.offset, message)
 
     if implicit is not None and (implicit.texts or implicit.rules):
         _estimate_font_sizes(implicit, fonts)
@@ -1752,7 +1841,7 @@ def extract_pages(
         # specimen sheet of their embedded raster glyphs.
         specimen = _font_specimen_pages(parse_fonts(fields))
         if specimen:
-            return specimen
+            pages = specimen
     if not pages and overlays and not any(f.sf_id == 0xD3A8A8 for f in fields):
         # Standalone overlay *resource* files (BMO...EMO with no enclosing
         # document — no BDT — and no IPO to place them) carry their own
@@ -1780,6 +1869,9 @@ def extract_pages(
             )
             pages.append(page)
     _annotate_image_notes(pages)
+    for page in pages:
+        for issue in document_issues.render_issues:
+            _render_issue(page, issue["code"], issue["offset"], issue["message"])
     return pages
 
 
@@ -2201,6 +2293,8 @@ def _paginate_implicit(page: Page) -> List[Page]:
                     width=page.width,
                     height=page.height,
                     units_per_inch=page.units_per_inch,
+                    render_issues=[dict(issue) for issue in page.render_issues],
+                    coded_text_incomplete=page.coded_text_incomplete,
                 ),
             )
             item.y -= idx * usable

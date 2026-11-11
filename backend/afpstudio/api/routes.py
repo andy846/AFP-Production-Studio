@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import hashlib
 import uuid
+from bisect import bisect_left
 from pathlib import Path
 from typing import Any
 
@@ -503,21 +504,29 @@ def document_fields(document_id: str):
     if error:
         return error
     page_arg = request.args.get("page")
+    at = request.args.get("at_offset")
+    focus = None
     try:
         page = int(page_arg) if page_arg not in (None, "") else None
         limit = min(int(request.args.get("limit", 2000)), 20000)
         offset = max(0, int(request.args.get("offset", 0)))
         if limit < 1 or (page is not None and page < 0):
             raise ValueError
+        if at is not None:
+            if page is not None or "offset" in request.args:
+                raise ValueError
+            focus = int(at)
+            position = bisect_left(document.index.offsets, focus)
+            if position >= document.index.field_count or document.index.offsets[position] != focus:
+                raise ValueError
+            offset = max(0, position - min(5, limit // 2))
     except ValueError:
         return _error("Invalid page, limit or offset.", 400, "invalid_request")
     rows = document.fields(page=page, limit=limit, offset=offset)
-    return jsonify(
-        {
-            "fields": [row.as_dict() for row in rows],
-            "total": document.index.field_count,
-        }
-    )
+    payload = {"fields": [row.as_dict() for row in rows], "total": document.index.field_count}
+    if focus is not None:
+        payload["focused_offset"] = focus
+    return jsonify(payload)
 
 
 @bp.route("/documents/<document_id>/structure-index", methods=["GET", "POST"])

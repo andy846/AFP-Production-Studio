@@ -1,4 +1,7 @@
 """Physical-offset and viewer acceptance for the supported RDW subset."""
+import json
+from xml.etree import ElementTree as ET
+
 import pytest
 
 from afpstudio.document_model.model import DocumentStore
@@ -27,7 +30,17 @@ def test_rdw_keeps_physical_offsets_and_matches_rendering(tmp_path):
     for i in range(a.index.field_count):
         assert b.index.offsets[i] == a.index.offsets[i] + (i + 1) * 4
     assert [p.medium_map for p in b.preflight.pages] == [p.medium_map for p in a.preflight.pages]
-    assert b.page_svg(0) == a.page_svg(0)
+    standard_svg = ET.fromstring(a.page_svg(0))
+    rdw_svg = ET.fromstring(b.page_svg(0))
+    standard_issues = json.loads(standard_svg.attrib.pop("data-render-issues", "[]"))
+    rdw_issues = json.loads(rdw_svg.attrib.pop("data-render-issues", "[]"))
+    # Drawing remains identical; diagnostics deliberately retain each input's
+    # original physical offsets, including the RDW headers.
+    assert ET.tostring(rdw_svg) == ET.tostring(standard_svg)
+    assert len(rdw_issues) == len(standard_issues)
+    offsets = dict(zip(a.index.offsets, b.index.offsets))
+    for standard_issue, rdw_issue in zip(standard_issues, rdw_issues):
+        assert rdw_issue == {**standard_issue, "offset": offsets[standard_issue["offset"]]}
     assert rdw.read_bytes() == wrapped
 
 
