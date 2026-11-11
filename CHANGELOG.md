@@ -2,6 +2,10 @@
 
 ## 0.3.1 — Unreleased
 
+- Restore raster page-segment backgrounds referenced by IPS, including
+  blank BPS names inherited from enclosing resources. Decode explicitly
+  framed IBM MMR images with declared dimensions; keep this separate from G4.
+
 - Decode IOCA X'82' T.6 Group 4 bilevel images through local Pillow/libtiff.
   This restores the image layer previously omitted in affected AFP previews.
   Decoding enforces pixel, compressed-byte and recording-mode limits.

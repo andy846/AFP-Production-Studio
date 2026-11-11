@@ -26,7 +26,7 @@ import io
 import struct
 import warnings
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Iterator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 COMPRESSION_NONE = 0x03
 COMPRESSION_JPEG = 0x83
 COMPRESSION_GROUP4 = 0x82
+COMPRESSION_IBM_MMR = 0x01
 MAX_GROUP4_PIXELS = 64_000_000
 MAX_GROUP4_BYTES = 16 * 1024 * 1024
 
@@ -161,22 +162,8 @@ def _group4_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
             or img.width * img.height > MAX_GROUP4_PIXELS
             or not 0 < len(img.data) <= MAX_GROUP4_BYTES):
         return None
-    tags = [(256, 4, img.width), (257, 4, img.height), (258, 3, 1),
-            (259, 3, 4), (262, 3, 0), (266, 3, 1), (273, 4, 0),
-            (277, 3, 1), (278, 4, img.height), (279, 4, len(img.data)),
-            (293, 4, 0)]
-    offset = 8 + 2 + 12 * len(tags) + 4
-    header = b"II" + struct.pack("<HIH", 42, 8, len(tags))
-    header += b"".join(struct.pack("<HHII", tag, kind, 1, offset if tag == 273 else value)
-                       for tag, kind, value in tags) + bytes(4)
     try:
-        from PIL import Image
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            with Image.open(io.BytesIO(header + img.data)) as image:
-                image.load()
-                # Pillow returns mode 1 with 0=black, already PNG's polarity.
-                pixels = image.tobytes()
+        pixels = _fax_pixels(img.width, img.height, img.data, 4)
         row_bytes = (img.width + 7) // 8
         if len(pixels) != row_bytes * img.height:
             return None
@@ -185,15 +172,79 @@ def _group4_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
         return None
 
 
+def _fax_pixels(width, height, data, compression):
+    tags = [(256, 4, width), (257, 4, height), (258, 3, 1),
+            (259, 3, compression), (262, 3, 0), (266, 3, 1), (273, 4, 0),
+            (277, 3, 1), (278, 4, height), (279, 4, len(data)),
+            (293, 4, 0)]
+    offset = 8 + 2 + 12 * len(tags) + 4
+    header = b"II" + struct.pack("<HIH", 42, 8, len(tags))
+    header += b"".join(struct.pack("<HHII", tag, kind, 1, offset if tag == 273 else value)
+                       for tag, kind, value in tags) + bytes(4)
+    from PIL import Image
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with Image.open(io.BytesIO(header + data)) as image:
+            image.load()
+            return image.tobytes()
+
+
+def _ibm_mmr_blob(img):
+    """Convert the first 1D row to T.6; retain all remaining 2D row bits.
+
+    IOCA Reference appendix A: IBM MMR uses an initial T.4 1D row,
+    EOL/tag transitions, and no per-row EOL in the following 2D data.
+    Support explicit EOL+1 / EOL+0 framing with declared dimensions only.
+    """
+    if (img.bits != 1 or img.recording != 1 or not 0 < img.width <= 65535
+            or not 0 < img.height <= 65535 or img.width * img.height > MAX_GROUP4_PIXELS
+            or not 0 < len(img.data) <= MAX_GROUP4_BYTES):
+        return None
+    eol = "000000000001"
+    # Only the first row is expanded to a bit string, never the whole image.
+    prefix = "".join(f"{b:08b}" for b in img.data[:img.width * 4 + 64])
+    boundary = prefix.find(eol, 13)
+    if not prefix.startswith(eol + "1") or boundary <= 13 or prefix[boundary + 12:boundary + 13] != "0":
+        return None
+    row = prefix[13:boundary]
+    row_data = int(row.ljust((len(row) + 7) // 8 * 8, "0"), 2).to_bytes((len(row) + 7) // 8, "big")
+    try:
+        from PIL import Image
+        pixels = _fax_pixels(img.width, 1, row_data, 2)
+        with Image.frombytes("1", (img.width, 1), pixels) as first:
+            buffer = io.BytesIO()
+            first.save(buffer, format="TIFF", compression="group4", tiffinfo={262: 0})
+        with Image.open(io.BytesIO(buffer.getvalue())) as encoded:
+            offsets, counts = encoded.tag_v2[273], encoded.tag_v2[279]
+            if len(offsets) != 1:
+                return None
+            raw = buffer.getvalue()[offsets[0]:offsets[0] + counts[0]]
+        bits = "".join(f"{b:08b}" for b in raw)
+        end = bits.rfind(eol + eol)
+        if end <= 0:
+            return None
+        first_bits = bits[:end]
+        tail_length = len(img.data) * 8 - boundary - 13
+        tail = int.from_bytes(img.data, "big") & ((1 << tail_length) - 1)
+        total = len(first_bits) + tail_length
+        value = (int(first_bits, 2) << tail_length) | tail
+        data = (value << (-total % 8)).to_bytes((total + 7) // 8, "big")
+        return _group4_blob(replace(img, compression=COMPRESSION_GROUP4, data=data))
+    except (ImportError, OSError, ValueError, Warning):
+        return None
+
+
 def image_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
     """Turn a parsed image into (mime, bytes) a browser can display.
 
     Returns None for combinations the corpus has never shown us
-    (IBM MMR, Group 3 fax, banded uncompressed color, ...) — the
+    (unframed IBM MMR, Group 3 fax, banded uncompressed color, ...) — the
     caller should log and skip rather than render something invented.
     """
     if img.compression == COMPRESSION_GROUP4:
         return _group4_blob(img)
+    if img.compression == COMPRESSION_IBM_MMR:
+        return _ibm_mmr_blob(img)
     if img.compression == COMPRESSION_JPEG:
         start = img.data.find(b"\xff\xd8")
         if start >= 0:

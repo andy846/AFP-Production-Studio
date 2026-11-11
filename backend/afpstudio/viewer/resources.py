@@ -34,16 +34,23 @@ def resource_dependencies(index: DocumentIndex, path: Path, max_items: int = 100
     warnings = []
     definition_fields = {**EMBED_FIELDS, "overlay": BMO, "page segment": BPS, "object": BOC}
     include_fields = {0xD3AFD8: "overlay", 0xD3AF5F: "page segment", 0xD3AFC3: "object"}
+    resource_name = None
     with Path(path).open("rb") as handle:
         for i in range(index.field_count):
             sf_id = index.sf_ids[i]
             offset = int(index.offsets[i])
+            if sf_id == 0xD3A8CE:  # BRS supplies a resource object's name
+                resource_name = index.token_at(i)
+            elif sf_id == 0xD3A9CE:
+                resource_name = None
             if len(definitions) + len(references) + len(warnings) >= max_items:
                 warnings.append({"code": "RESOURCE_INDEX_LIMIT", "offset": offset})
                 break
             if sf_id in definition_fields.values():
                 kind = next(k for k, value in definition_fields.items() if value == sf_id)
                 name = index.token_at(i)
+                if sf_id == BPS and not name:
+                    name = resource_name
                 if name:
                     definitions.append({"kind": kind, "name": name, "offset": offset})
             elif sf_id in include_fields:

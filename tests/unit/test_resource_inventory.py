@@ -54,3 +54,17 @@ def test_later_definition_is_observation_not_scope_resolution(tmp_path):
     data = resource_dependencies(build_index(path), path)
     assert data["references"][0]["status"] == "definition_present_scope_unverified"
     assert data["references"][0]["definition_offsets"]
+
+
+def test_page_segment_inherits_resource_name_but_not_an_earlier_resource(tmp_path):
+    sf = synthetic.structured_field
+    name = synthetic.encode_name("SEG01")
+    path = tmp_path / "wrapped.afp"
+    path.write_bytes(synthetic.bdt() + sf(0xD3A8CE, name) + sf(0xD3A85F, b"\x40" * 8)
+        + sf(0xD3A95F) + sf(0xD3A9CE)
+        + sf(0xD3A85F, b"\x40" * 8) + sf(0xD3A95F)
+        + synthetic.bpg() + sf(0xD3AF5F, name + bytes(6)) + synthetic.epg() + synthetic.edt())
+    graph = resource_dependencies(build_index(path), path)
+    assert len(graph["definitions"]) == 1
+    assert graph["references"][0]["definition_count"] == 1
+    assert graph["references"][0]["status"] == "definition_present_scope_unverified"

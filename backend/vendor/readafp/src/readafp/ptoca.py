@@ -1371,6 +1371,8 @@ def extract_pages(
     image_resources: Dict[str, _ImageObject] = {}
     loose_images: List[_ImageObject] = []
     resource_name: Optional[str] = None  # enclosing BRS or BPS token
+    page_segments: Dict[str, List[_ImageObject]] = {}
+    segment_name: Optional[str] = None
     overlays: Dict[str, Page] = {}  # BMO...EMO content, by name, for IPO
     mpo_map: Dict[int, str] = {}  # MPO: overlay local id -> name, for IPO-by-id
     in_overlay = False
@@ -1396,9 +1398,15 @@ def extract_pages(
             # Repeated bytes concatenation copies the whole prefix for every
             # field, even for resources that the requested page never uses.
             resources.setdefault(container, []).append(f.data)
-        elif f.sf_id in (0xD3A8CE, 0xD3A85F):  # BRS / BPS name a resource
+        elif f.sf_id == 0xD3A8CE:  # BRS
             resource_name = f.token_name
-        elif f.sf_id in (0xD3A9CE, 0xD3A95F):  # ERS / EPS
+        elif f.sf_id == 0xD3A85F:  # BPS can inherit its enclosing BRS name
+            segment_name = (f.token_name or "").strip() or resource_name
+            if segment_name:
+                page_segments[segment_name] = []
+        elif f.sf_id == 0xD3A95F:  # EPS
+            segment_name = None
+        elif f.sf_id == 0xD3A9CE:  # ERS
             resource_name = None
         elif f.sf_id == 0xD3A8FB:  # BIM starts an image object capture
             in_image = True
@@ -1426,6 +1434,8 @@ def extract_pages(
                         )
                     )
                 else:
+                    if segment_name:
+                        page_segments[segment_name].append(obj)
                     for key in (image_name, resource_name):
                         if key:
                             image_resources.setdefault(key, obj)
@@ -1496,6 +1506,17 @@ def extract_pages(
             )
             if image is not None:
                 current.images.append(image)
+        elif f.sf_id == 0xD3AF5F and current is not None and len(f.data) >= 14:  # IPS
+            name = f.data[:8].decode("cp500").strip()
+            x = int.from_bytes(f.data[8:11], "big", signed=True)
+            y = int.from_bytes(f.data[11:14], "big", signed=True)
+            for obj in page_segments.get(name, ()):
+                current.images.append(ImageRef(
+                    x=x + _scale(obj.x, obj.upi, current.units_per_inch),
+                    y=y + _scale(obj.y, obj.upi, current.units_per_inch),
+                    width=_scale(obj.width, obj.upi, current.units_per_inch),
+                    height=_scale(obj.height, obj.upi, current.units_per_inch),
+                    mime=obj.mime, data=obj.blob, bands=obj.bands))
         elif f.sf_id == 0xD3ABD8:  # MPO: map overlay local id -> name
             mpo_map.update(_parse_mpo(f.data))
         elif f.sf_id == 0xD3AFD8 and current is not None:  # IPO: place overlay

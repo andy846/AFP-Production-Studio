@@ -54,6 +54,48 @@ def test_group4_ioca_enforces_dimensions_and_element_depth():
     assert image_blob(IocaImage(width=37, height=23, compression=0x82, data=raw, recording=3)) is None
 
 
+@pytest.mark.parametrize("black_first_row", [False, True])
+def test_ibm_mmr_first_1d_line_followed_by_2d_lines(black_first_row):
+    from PIL import Image
+    image = Image.new("1", (8, 4), 255)
+    if black_first_row:
+        for x in range(8):
+            image.putpixel((x, 0), 0)
+    image.putpixel((2, 1), 0)
+    image.putpixel((5, 2), 0)
+    buffer = io.BytesIO()
+    image.save(buffer, format="TIFF", compression="group4", tiffinfo={262: 0})
+    with Image.open(io.BytesIO(buffer.getvalue())) as tiff:
+        start, count = tiff.tag_v2[273][0], tiff.tag_v2[279][0]
+    bits = "".join(f"{b:08b}" for b in buffer.getvalue()[start:start + count])
+    first_bits = "00100110101000101" if black_first_row else "1"
+    assert bits.startswith(first_bits)
+    # T.4 white run of 8 pels = 10011. IBM MMR starts EOL+1 (1D),
+    # switches with EOL+0, then carries the remaining 2D-coded rows.
+    first_1d = "00110101000101" if black_first_row else "10011"
+    mmr = "0000000000011" + first_1d + "0000000000010" + bits[len(first_bits):]
+    data = int(mmr.ljust((len(mmr) + 7) // 8 * 8, "0"), 2).to_bytes((len(mmr) + 7) // 8, "big")
+    result = image_blob(IocaImage(width=8, height=4, compression=1, data=data))
+    assert result is not None
+    with Image.open(io.BytesIO(result[1])) as actual:
+        assert actual.tobytes() == image.tobytes()
+
+
+def test_blank_named_segment_uses_resource_wrapper_and_ips_offsets():
+    from readafp.parser import iter_fields
+    def sf(identifier, payload=b""):
+        return b"\x5a" + struct.pack(">H", 8 + len(payload)) + identifier.to_bytes(3, "big") + bytes(3) + payload
+    name = "SEGMENT".ljust(8).encode("cp500")
+    raw = (sf(0xD3A8A8) + sf(0xD3A8CE, name) + sf(0xD3A85F, b"\x40" * 8)
+           + sf(0xD3A8FB) + sf(0xD3EEFB, _segment(8, 2, 1, b"\x80\x01"))
+           + sf(0xD3A9FB) + sf(0xD3A95F) + sf(0xD3A9CE) + sf(0xD3A8AF)
+           + sf(0xD3AF5F, name + (123).to_bytes(3, "big", signed=True) + (-45).to_bytes(3, "big", signed=True))
+           + sf(0xD3A9AF) + sf(0xD3A9A8))
+    page, = extract_pages(list(iter_fields(raw)))
+    assert len(page.images) == 1
+    assert (page.images[0].x, page.images[0].y) == (123, -45)
+
+
 def test_group4_image_is_placed_on_the_page_and_emitted_in_svg():
     from readafp.parser import iter_fields
 
