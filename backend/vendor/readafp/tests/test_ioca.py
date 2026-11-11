@@ -2,16 +2,73 @@
 
 import struct
 import zlib
+import io
 from pathlib import Path
 
 import pytest
 
 from readafp.ioca import (
+    IocaImage,
     cmyk_jpeg_bands,
     image_blob,
     iter_sdfs,
     parse_image_segment,
 )
+
+
+def _group4_fixture():
+    from PIL import Image
+    image = Image.new("1", (37, 23), 255)
+    for y in range(23):
+        for x in range(37):
+            if x == 2 or y == 3 or (x + 2 * y) % 11 == 0:
+                image.putpixel((x, y), 0)
+    buffer = io.BytesIO()
+    image.save(buffer, format="TIFF", compression="group4", tiffinfo={262: 0})
+    data = buffer.getvalue()
+    with Image.open(io.BytesIO(data)) as encoded:
+        offsets, counts = encoded.tag_v2[273], encoded.tag_v2[279]
+        assert len(offsets) == 1
+        raw = data[offsets[0]:offsets[0] + counts[0]]
+    return image, raw
+
+
+def test_group4_ioca_preserves_every_pixel_and_white_black_polarity():
+    from PIL import Image
+    expected, raw = _group4_fixture()
+    img = parse_image_segment(_segment(37, 23, 1, raw, compression=0x82))
+    result = image_blob(img)
+    assert result is not None
+    mime, png = result
+    assert mime == "image/png"
+    with Image.open(io.BytesIO(png)) as actual:
+        assert actual.size == expected.size
+        assert actual.convert("1").tobytes() == expected.tobytes()
+
+
+def test_group4_ioca_enforces_dimensions_and_element_depth():
+    _, raw = _group4_fixture()
+    for width, height, bits in ((0, 23, 1), (37, 0, 1), (65535, 65535, 1), (37, 23, 8)):
+        assert image_blob(IocaImage(width=width, height=height, bits=bits, compression=0x82, data=raw)) is None
+    assert image_blob(IocaImage(width=37, height=23, compression=0x82, data=b"")) is None
+    assert image_blob(IocaImage(width=37, height=23, compression=0x82, data=raw, recording=3)) is None
+
+
+def test_group4_image_is_placed_on_the_page_and_emitted_in_svg():
+    from readafp.parser import iter_fields
+
+    def sf(identifier, payload=b""):
+        return b"\x5a" + struct.pack(">H", 8 + len(payload)) + identifier.to_bytes(3, "big") + bytes(3) + payload
+
+    _, raw = _group4_fixture()
+    afp = (sf(0xD3A8A8) + sf(0xD3A8AF) + sf(0xD3A8FB)
+           + sf(0xD3EEFB, _segment(37, 23, 1, raw, compression=0x82))
+           + sf(0xD3A9FB) + sf(0xD3A9AF) + sf(0xD3A9A8))
+    page, = extract_pages(list(iter_fields(afp)))
+    assert len(page.images) == 1
+    assert page.images[0].width == 37 * page.units_per_inch // 72
+    assert page.images[0].height == 23 * page.units_per_inch // 72
+    assert "data:image/png;base64," in page_to_svg(page)
 from readafp.parser import parse_file
 from readafp.ptoca import extract_pages
 from readafp.render import page_to_svg
@@ -132,7 +189,7 @@ def test_image_blob_jpeg_passthrough() -> None:
 
 
 def test_image_blob_rejects_unknown_compression() -> None:
-    img = parse_image_segment(_segment(8, 2, 1, b"\xff\xff", compression=0x82))
+    img = parse_image_segment(_segment(8, 2, 1, b"\xff\xff", compression=0xFE))
     assert image_blob(img) is None
 
 

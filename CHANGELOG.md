@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+- Decode IOCA X'82' T.6 Group 4 bilevel images through local Pillow/libtiff.
+  This restores the image layer previously omitted in affected AFP previews.
+  Decoding enforces pixel, compressed-byte and recording-mode limits.
+
 ## 0.3.0 — Unified Engine
 
 - Folder production Excel report with per-file and folder totals for AFP pages,

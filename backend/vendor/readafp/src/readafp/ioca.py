@@ -13,6 +13,7 @@ of interest here:
 
 The decoders cover what the corpus actually contains: uncompressed
 bilevel and 8-bit grayscale rebuilt as PNG (stdlib zlib only),
+T.6 Group 4 bilevel data decoded locally through Pillow/libtiff,
 JPEG-compressed data passed through untouched, and band-interleaved
 CMYK (one grayscale JPEG per ink plane) handed to the renderer as four
 plane blobs for optical composition.
@@ -21,7 +22,9 @@ Reference: IOCA Reference, AFPC-0003-09 (docs/specs/ioca-reference-09.pdf).
 """
 
 import logging
+import io
 import struct
+import warnings
 import zlib
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -31,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Image Encoding (0x95) compression algorithm identifiers.
 COMPRESSION_NONE = 0x03
 COMPRESSION_JPEG = 0x83
+COMPRESSION_GROUP4 = 0x82
+MAX_GROUP4_PIXELS = 64_000_000
+MAX_GROUP4_BYTES = 16 * 1024 * 1024
 
 
 def iter_sdfs(data: bytes) -> Iterator[Tuple[int, bytes]]:
@@ -75,6 +81,7 @@ class IocaImage:
     bits: int = 1  # IDE size: bits per image data element
     data: bytes = b""
     bands: Dict[int, bytes] = field(default_factory=dict)
+    recording: int = 1  # RIDIC; only top-to-bottom is decoded for Group 4
 
 
 def parse_image_segment(data: bytes) -> Optional[IocaImage]:
@@ -93,6 +100,8 @@ def parse_image_segment(data: bytes) -> Optional[IocaImage]:
         elif code == 0x95 and len(params) >= 1:  # Image Encoding
             seen = True
             img.compression = params[0]
+            if len(params) > 1:
+                img.recording = params[1]
         elif code == 0x96 and params:  # IDE Size
             img.bits = params[0]
         elif code == 0xFE92:  # Image Data
@@ -140,13 +149,51 @@ def pack_png(width: int, height: int, bit_depth: int, color_type: int,
     )
 
 
+def _group4_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
+    """Decode T.6 data through Pillow's local libtiff codec with bounded size.
+
+    IOCA X'82' is T.6 Group 4, not IBM MMR (X'01'). A minimal, single-strip
+    TIFF supplies the geometry; WhiteIsZero is the fax photometric convention.
+    No filesystem access, external resources or executable is involved.
+    """
+    if (img.bits != 1 or img.recording != 1 or img.width <= 0 or img.height <= 0
+            or img.width > 65535 or img.height > 65535
+            or img.width * img.height > MAX_GROUP4_PIXELS
+            or not 0 < len(img.data) <= MAX_GROUP4_BYTES):
+        return None
+    tags = [(256, 4, img.width), (257, 4, img.height), (258, 3, 1),
+            (259, 3, 4), (262, 3, 0), (266, 3, 1), (273, 4, 0),
+            (277, 3, 1), (278, 4, img.height), (279, 4, len(img.data)),
+            (293, 4, 0)]
+    offset = 8 + 2 + 12 * len(tags) + 4
+    header = b"II" + struct.pack("<HIH", 42, 8, len(tags))
+    header += b"".join(struct.pack("<HHII", tag, kind, 1, offset if tag == 273 else value)
+                       for tag, kind, value in tags) + bytes(4)
+    try:
+        from PIL import Image
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with Image.open(io.BytesIO(header + img.data)) as image:
+                image.load()
+                # Pillow returns mode 1 with 0=black, already PNG's polarity.
+                pixels = image.tobytes()
+        row_bytes = (img.width + 7) // 8
+        if len(pixels) != row_bytes * img.height:
+            return None
+        return "image/png", pack_png(img.width, img.height, 1, 0, row_bytes, pixels)
+    except (ImportError, OSError, ValueError, Warning):
+        return None
+
+
 def image_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
     """Turn a parsed image into (mime, bytes) a browser can display.
 
     Returns None for combinations the corpus has never shown us
-    (CCITT fax compressions, banded uncompressed color, ...) — the
+    (IBM MMR, Group 3 fax, banded uncompressed color, ...) — the
     caller should log and skip rather than render something invented.
     """
+    if img.compression == COMPRESSION_GROUP4:
+        return _group4_blob(img)
     if img.compression == COMPRESSION_JPEG:
         start = img.data.find(b"\xff\xd8")
         if start >= 0:
