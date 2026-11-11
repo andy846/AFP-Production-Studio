@@ -212,6 +212,7 @@
     renderDocumentTabs();
     $("opener").hidden = false;
     $("page-holder").textContent = "";
+    showRenderWarnings(null);
     $("tree").textContent = "";
     updateThumbnails(true);
     $("details").textContent = "";
@@ -562,6 +563,7 @@
     $("doc-chip").hidden = true;
     $("opener").hidden = false;
     $("page-holder").textContent = "";
+    showRenderWarnings(null);
     $("tree").textContent = "";
     updateThumbnails(true);
     $("details").textContent = "";
@@ -1074,7 +1076,24 @@
   }
 
   let pageRequest = 0;
+  function showRenderWarnings(svg) {
+    const panel = $("render-warning-panel"), list = $("render-warning-list");
+    list.replaceChildren();
+    let issues = [];
+    try { issues = JSON.parse(svg?.getAttribute("data-render-issues") || "[]"); }
+    catch (_) { issues = [{message: "Preview diagnostics could not be read."}]; }
+    if (!Array.isArray(issues)) issues = [];
+    panel.hidden = !issues.length;
+    $("render-warning-summary").textContent = "Preview limitations (" + issues.length + ") — review before relying on this view";
+    issues.slice(0, 128).forEach(issue => {
+      const line = document.createElement("li");
+      line.textContent = issue.message + (Number.isInteger(issue.offset) ? " — field offset " + issue.offset : "");
+      list.appendChild(line);
+    });
+  }
+
   async function showPage(page) {
+    showRenderWarnings(null);
     if (!state.document) return;
     if (!state.document.page_count) {
       $("viewer-empty").hidden = false;
@@ -1111,6 +1130,7 @@
       const svg = await response.text();
       if (requestId !== pageRequest || !state.document || state.document.document_id !== documentId) return;
       holder.innerHTML = svg;
+      showRenderWarnings(holder.querySelector("svg"));
       $("viewer-empty").hidden = true;
       // The first page is fitted to the stage; after that the operator's
       // own zoom is kept.

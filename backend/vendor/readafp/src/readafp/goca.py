@@ -760,7 +760,7 @@ class GocaGraphic:
     gps_h: int      # GPS window height
 
 
-def draw_goca(gdd_data: bytes, gad_data: bytes) -> Optional[GocaGraphic]:
+def draw_goca(gdd_data: bytes, gad_data: bytes, *, issues=None) -> Optional[GocaGraphic]:
     """Decode a GOCA object → SVG fragment.
 
     ``gdd_data`` is the raw bytes of the GDD structured field.
@@ -781,11 +781,22 @@ def draw_goca(gdd_data: bytes, gad_data: bytes) -> Optional[GocaGraphic]:
         return None
 
     ctx = GocaContext(xlwind=xlwind, ytwind=ytwind)
+    skipped = {0x0C, 0x0D, 0x20, 0x29, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C,
+               0x33, 0x34, 0x35, 0x43, 0x82, 0xC2, 0x83, 0xC3,
+               0x91, 0xD1, 0x92, 0x93, 0xA0, 0xDE, 0xDF, 0xFEDC, 0xFEDD}
+    reported = set()
 
     for code, params in iter_orders(gad_data):
+        if code in skipped and code not in reported and issues is not None:
+            reported.add(code)
+            issues.append(f"GOCA drawing order 0x{code:04X} is not fully supported.")
         try:
-            _dispatch(ctx, code, params)
+            handled = _dispatch(ctx, code, params)
+            if handled is False and issues is not None and len(issues) < 128:
+                issues.append(f"GOCA drawing order 0x{code:04X} is unsupported.")
         except Exception:
+            if issues is not None and len(issues) < 128:
+                issues.append(f"GOCA drawing order 0x{code:04X} could not be decoded.")
             logger.debug("GOCA: error in order 0x%02X", code, exc_info=True)
 
     svg = "".join(ctx.out)
@@ -886,3 +897,4 @@ def _dispatch(ctx: GocaContext, code: int, params: bytes) -> None:  # noqa: C901
         pass
     else:
         logger.debug("GOCA: unhandled order 0x%02X (%d param bytes)", code, len(params))
+        return False

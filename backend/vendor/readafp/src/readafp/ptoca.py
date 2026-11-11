@@ -219,6 +219,7 @@ class Page:
     text_layer: List[TextRun] = field(default_factory=list)
     truncated: bool = False  # content dropped after MAX_RUNS_PER_PAGE
     coded_text_incomplete: bool = False
+    render_issues: List[dict] = field(default_factory=list)
 
     @property
     def plain_text(self) -> str:
@@ -592,12 +593,19 @@ class _TextState:
         elif t == 0x74 and len(p) >= 2:  # STC
             self.color = _STC_COLORS.get(_u16(p), DEFAULT_COLOR)
         elif t == 0x80:  # SEC
-            self.color = _sec_color(p) or self.color
+            color = _sec_color(p)
+            if color is None:
+                _render_issue(page, "COLOR_APPROXIMATION", self.field_offset,
+                              "An extended text color could not be decoded.")
+            self.color = color or self.color
         elif t == 0xF6 and len(p) >= 2:  # STO
             # INLORENT is a u16 in units of 1/128 degree, CW from +X.
             # Standard values: 0=right, 11520=90°CW=down, 23040=180°=left,
             # 34560=270°CW=up.  Position resets to the page origin.
             self.orientation = (_u16(p) // 128) % 360
+            if self.orientation not in (0, 90, 180, 270):
+                _render_issue(page, "TEXT_ROTATION_APPROXIMATION", self.field_offset,
+                              "This text orientation is not fully supported.")
             self.i = 0
             self.b = 0
         elif t == 0xDA:  # TRN
@@ -710,6 +718,9 @@ class _TextState:
             self._add_rule(page, p, axis="I")
         elif t == 0xE6 and len(p) >= 2:  # DBR: vertical rule
             self._add_rule(page, p, axis="B")
+        elif t != 0xF8:
+            _render_issue(page, "PTOCA_PARTIAL", self.field_offset,
+                          f"Text control 0x{t:02X} is unsupported or malformed; positioning or visibility may differ.")
 
     def _add_rule(self, page: Page, p: bytes, axis: str) -> None:
         if len(page.rules) >= MAX_RUNS_PER_PAGE:
@@ -1293,6 +1304,14 @@ def _scan_code_pages(
     return out
 
 
+def _render_issue(page, code, offset, message):
+    if page is None:
+        return
+    item = {"code": code, "offset": offset, "message": message}
+    if len(page.render_issues) < 128 and item not in page.render_issues:
+        page.render_issues.append(item)
+
+
 def extract_pages(
     fields: List[StructuredField], codepage: str = "cp500",
     embed_small_fonts: bool = False,
@@ -1371,8 +1390,9 @@ def extract_pages(
     image_resources: Dict[str, _ImageObject] = {}
     loose_images: List[_ImageObject] = []
     resource_name: Optional[str] = None  # enclosing BRS or BPS token
-    page_segments: Dict[str, List[_ImageObject]] = {}
+    page_segments: Dict[str, Page] = {}
     segment_name: Optional[str] = None
+    captures = []
     overlays: Dict[str, Page] = {}  # BMO...EMO content, by name, for IPO
     mpo_map: Dict[int, str] = {}  # MPO: overlay local id -> name, for IPO-by-id
     in_overlay = False
@@ -1401,11 +1421,22 @@ def extract_pages(
         elif f.sf_id == 0xD3A8CE:  # BRS
             resource_name = f.token_name
         elif f.sf_id == 0xD3A85F:  # BPS can inherit its enclosing BRS name
+            captures.append((current, state, in_overlay, overlay_name, segment_name, "segment"))
             segment_name = (f.token_name or "").strip() or resource_name
-            if segment_name:
-                page_segments[segment_name] = []
+            current = Page()
+            parent = captures[-1][0]
+            if parent is not None:
+                current.width, current.height, current.units_per_inch = parent.width, parent.height, parent.units_per_inch
+            elif pgd_default:
+                current.width, current.height, current.units_per_inch = pgd_default
+            state = _TextState(fonts, codepage, font_codepages, embedded_text_fonts,
+                               embed_small_fonts, coded_raster_fonts)
         elif f.sf_id == 0xD3A95F:  # EPS
-            segment_name = None
+            if captures and captures[-1][-1] == "segment":
+                if segment_name and current is not None:
+                    _estimate_font_sizes(current, fonts)
+                    page_segments[segment_name] = current
+                current, state, in_overlay, overlay_name, segment_name, _ = captures.pop()
         elif f.sf_id == 0xD3A9CE:  # ERS
             resource_name = None
         elif f.sf_id == 0xD3A8FB:  # BIM starts an image object capture
@@ -1416,6 +1447,9 @@ def extract_pages(
         elif f.sf_id == 0xD3A9FB and in_image:  # EIM completes it
             in_image = False
             obj = _finish_image_object(bytes(image_ipd), image_obd, image_obp)
+            if obj is None:
+                message = "An image could not be decoded or placed; its encoding, geometry or data is unsupported or invalid."
+                _render_issue(current, "IMAGE_NOT_RENDERED", f.offset, message)
             if obj is not None:
                 if current is not None:  # inline: place on the page now
                     current.images.append(
@@ -1434,8 +1468,6 @@ def extract_pages(
                         )
                     )
                 else:
-                    if segment_name:
-                        page_segments[segment_name].append(obj)
                     for key in (image_name, resource_name):
                         if key:
                             image_resources.setdefault(key, obj)
@@ -1464,6 +1496,9 @@ def extract_pages(
                     bar = parse_barcode(barcode_bdd, bda)
                     generated = barcode_png(bar) if bar else None
                     if generated is None:
+                        if not (bda and bda[0] & 0x04):
+                            _render_issue(current, "BARCODE_NOT_RENDERED", f.offset,
+                                          "A barcode uses an unsupported symbology, options or invalid data.")
                         continue
                     png, modules = generated
                     side = round(modules * bar.module_mils * upi / 1000)
@@ -1489,8 +1524,11 @@ def extract_pages(
             graphic_gads.append(f.data)
         elif f.sf_id == 0xD3A9BB and in_graphic:  # EGR completes it
             in_graphic = False
-            if current is not None and graphic_gdd:
-                goca = draw_goca(graphic_gdd, b"".join(graphic_gads))
+            if current is not None:
+                goca_issues = []
+                goca = draw_goca(graphic_gdd, b"".join(graphic_gads), issues=goca_issues)
+                for message in goca_issues:
+                    _render_issue(current, "GOCA_PARTIAL", f.offset, message)
                 if goca is not None:
                     ox, oy = _parse_obp(image_obp) if image_obp else (0, 0)
                     obd = _parse_obd(image_obd) if image_obd else (None, 0, 0)
@@ -1500,41 +1538,55 @@ def extract_pages(
                     current.graphics.append(
                         VectorGraphic(x=ox, y=oy, width=ow, height=oh, graphic=goca)
                     )
+                else:
+                    _render_issue(current, "GRAPHIC_NOT_RENDERED", f.offset, "A vector graphic could not be decoded.")
         elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
             image = _parse_iob(
                 f.data, resources, image_resources, current.units_per_inch
             )
             if image is not None:
                 current.images.append(image)
+            else:
+                _render_issue(current, "OBJECT_NOT_RENDERED", f.offset,
+                              "An included object is missing or cannot be rendered.")
         elif f.sf_id == 0xD3AF5F and current is not None and len(f.data) >= 14:  # IPS
             name = f.data[:8].decode("cp500").strip()
             x = int.from_bytes(f.data[8:11], "big", signed=True)
             y = int.from_bytes(f.data[11:14], "big", signed=True)
-            for obj in page_segments.get(name, ()):
-                current.images.append(ImageRef(
-                    x=x + _scale(obj.x, obj.upi, current.units_per_inch),
-                    y=y + _scale(obj.y, obj.upi, current.units_per_inch),
-                    width=_scale(obj.width, obj.upi, current.units_per_inch),
-                    height=_scale(obj.height, obj.upi, current.units_per_inch),
-                    mime=obj.mime, data=obj.blob, bands=obj.bands))
+            resource = page_segments.get(name)
+            if resource is not None:
+                _compose_page(current, resource, x, y)
+            else:
+                _render_issue(current, "MISSING_PAGE_SEGMENT", f.offset,
+                              "An included page segment has no supported embedded definition.")
         elif f.sf_id == 0xD3ABD8:  # MPO: map overlay local id -> name
             mpo_map.update(_parse_mpo(f.data))
         elif f.sf_id == 0xD3AFD8 and current is not None:  # IPO: place overlay
+            if _resolve_overlay(f.data, overlays, mpo_map) is None:
+                _render_issue(current, "MISSING_OVERLAY", f.offset,
+                              "An included overlay has no supported embedded definition.")
             _include_overlay(current, overlays, mpo_map, f.data)
         elif f.sf_id == 0xD3A8DF:  # BMO: capture an overlay like a page
+            captures.append((current, state, in_overlay, overlay_name, segment_name, "overlay"))
             current = Page()
-            if pgd_default:
+            parent = captures[-1][0]
+            if parent is not None:
+                current.width, current.height, current.units_per_inch = parent.width, parent.height, parent.units_per_inch
+            elif pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
             state = _TextState(fonts, codepage, font_codepages, embedded_text_fonts,
                                  embed_small_fonts, coded_raster_fonts)
             in_overlay = True
-            overlay_name = (f.token_name or "").strip()
+            overlay_name = (f.token_name or "").strip() or resource_name
         elif f.sf_id == 0xD3A9DF:  # EMO: store the captured overlay by name
             if current is not None and in_overlay:
                 _estimate_font_sizes(current, fonts)
                 if overlay_name:
                     overlays[overlay_name] = current
-            current, state, in_overlay, overlay_name = None, None, False, None
+            if captures and captures[-1][-1] == "overlay":
+                current, state, in_overlay, overlay_name, segment_name, _ = captures.pop()
+            else:
+                current, state, in_overlay, overlay_name = None, None, False, None
         elif f.sf_id == 0xD3A8AF:  # BPG
             current = Page()
             if pgd_default:
@@ -1710,6 +1762,9 @@ def extract_pages(
         for overlay in overlays.values():
             if overlay.texts or overlay.rules or overlay.images or overlay.graphics:
                 pages.append(overlay)
+    if not pages and page_segments and not any(f.sf_id == 0xD3A8A8 for f in fields):
+        pages.extend(resource for resource in page_segments.values()
+                     if resource.texts or resource.images or resource.rules or resource.graphics)
     if not pages and loose_images:
         # Standalone object / resource-only files have no pages to
         # place these on; show each image object at its own extent.
@@ -1802,8 +1857,17 @@ def _include_overlay(
         return
     ox = int.from_bytes(ipo[8:11], "big", signed=True) if len(ipo) >= 11 else 0
     oy = int.from_bytes(ipo[11:14], "big", signed=True) if len(ipo) >= 14 else 0
+    _compose_page(page, overlay, ox, oy)
+
+
+def _compose_page(page: Page, overlay: Page, ox: int, oy: int) -> None:
+    """Place a resource's visible objects and decoded text in page coordinates."""
     src_upi = overlay.units_per_inch or page.units_per_inch
     dst_upi = page.units_per_inch
+    for issue in overlay.render_issues:
+        _render_issue(page, issue["code"], issue["offset"], issue["message"])
+    page.coded_text_incomplete |= overlay.coded_text_incomplete
+    page.truncated |= overlay.truncated
 
     def sx(v: int) -> int:
         return ox + _scale(v, src_upi, dst_upi)
@@ -1814,29 +1878,43 @@ def _include_overlay(
     def sz(v: int) -> int:
         return _scale(v, src_upi, dst_upi)
 
-    for t in overlay.texts:
+    def capacity(destination, source):
+        count = max(0, MAX_RUNS_PER_PAGE - len(destination))
+        if len(source) > count:
+            page.truncated = True
+        return source[:count]
+
+    def rotate(value):
+        return (value[0], sx(value[1]), sy(value[2])) if value else None
+
+    for t in capacity(page.texts, overlay.texts):
         page.texts.append(
-            replace(t, x=sx(t.x), y=sy(t.y), font_size=sz(t.font_size))
+            replace(t, x=sx(t.x), y=sy(t.y), font_size=sz(t.font_size),
+                    space_width=sz(t.space_width) if t.space_width is not None else None)
         )
-    for r in overlay.rules:
+    for t in capacity(page.text_layer, overlay.text_layer):
+        page.text_layer.append(replace(t, x=sx(t.x), y=sy(t.y), font_size=sz(t.font_size)))
+    for r in capacity(page.rules, overlay.rules):
         page.rules.append(
             replace(
                 r, x=sx(r.x), y=sy(r.y),
                 length=sz(r.length), thickness=sz(r.thickness),
             )
         )
-    for im in overlay.images:
+    for im in capacity(page.images, overlay.images):
         page.images.append(
             replace(
                 im, x=sx(im.x), y=sy(im.y),
                 width=sz(im.width), height=sz(im.height),
+                rotate=rotate(im.rotate),
             )
         )
-    for g in overlay.graphics:
+    for g in capacity(page.graphics, overlay.graphics):
         page.graphics.append(
             replace(
                 g, x=sx(g.x), y=sy(g.y),
                 width=sz(g.width), height=sz(g.height),
+                rotate=rotate(g.rotate),
             )
         )
 

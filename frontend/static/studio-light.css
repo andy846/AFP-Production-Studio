@@ -147,6 +147,9 @@ dialog h2 { margin: 0; font: 22px var(--serif); }
 #folder-report-dialog { width: min(660px, calc(100vw - 32px)); }
 #folder-report-dialog .dialog-actions { flex-wrap: wrap; }
 #folder-report-status { overflow-wrap: anywhere; margin: 0; }
+.render-warning-panel { padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--bg-raised); color: var(--warning); max-height: 24vh; overflow: auto; flex-shrink: 0; }
+.render-warning-panel summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.render-warning-panel li { margin: 6px 0; font-size: 12px; overflow-wrap: anywhere; }
 
 /* Theme the workspace, not the paper or any rendered document pixels. */
 :root[data-theme="dark"] {

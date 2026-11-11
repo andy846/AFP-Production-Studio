@@ -177,3 +177,36 @@ def test_referenced_container_keeps_split_image_bytes_and_record_order(tmp_path)
     assert [image.data for image in first.images] == [payload, payload]
     assert [image.data for image in second.images] == [payload + b"extra"] * 2
     assert all(image.mime == "image/gif" for model in (first, second) for image in model.images)
+
+
+def test_text_page_segment_and_nested_overlay_restore_the_current_page():
+    from readafp.parser import iter_fields
+    from afpstudio.testing import synthetic as sf
+    name = sf.encode_name("SEG01")
+    overlay = sf.encode_name("OVL01")
+    segment = (sf.structured_field(0xD3A85F, name) + sf.ptx_text([("Segment", 480)])
+               + sf.structured_field(0xD3A95F))
+    raw = (sf.bdt() + segment + sf.bpg() + sf.ptx_text([("Before", 240)])
+           + sf.structured_field(0xD3A8DF, overlay) + sf.ptx_text([("Overlay", 720)])
+           + sf.structured_field(0xD3A9DF)
+           + sf.structured_field(0xD3AFD8, overlay + bytes(6))
+           + sf.structured_field(0xD3AF5F, name + bytes(6))
+           + sf.ptx_text([("After", 960)]) + sf.epg() + sf.edt())
+    page, = extract_pages(list(iter_fields(raw)))
+    assert [text.text for text in page.texts] == ["Before", "Overlay", "Segment", "After"]
+
+
+def test_unsupported_content_is_explicit_in_svg_without_document_payload():
+    from readafp.parser import iter_fields
+    import html
+    raw = (sf.bdt() + sf.bpg()
+           + sf.structured_field(0xD3A8FB)
+           + sf.structured_field(0xD3EEFB, b"\x94\x09\x00\x02\xd0\x02\xd0\x00\x08\x00\x02\x95\x02\xfe\x01\xfe\x92\x00\x02\xff\xff")
+           + sf.structured_field(0xD3A9FB)
+           + sf.structured_field(0xD3AF5F, sf.encode_name("MISSING") + bytes(6))
+           + sf.epg() + sf.edt())
+    page, = extract_pages(list(iter_fields(raw)))
+    assert {issue["code"] for issue in page.render_issues} >= {"IMAGE_NOT_RENDERED", "MISSING_PAGE_SEGMENT"}
+    svg = html.unescape(page_to_svg(page))
+    assert "data-render-issues=" in svg and "IMAGE_NOT_RENDERED" in svg
+    assert all(type(issue["offset"]) is int for issue in page.render_issues)

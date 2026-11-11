@@ -2,6 +2,13 @@
 
 ## 0.3.1 — Unreleased
 
+- Display compatibility audit: additional Group 3, TIFF algorithm 2, PackBits
+  and LZW image decoding; supported bottom-up raster and bit-order handling.
+- Page segments now compose text and supported graphical content. Nested
+  overlay/segment definitions preserve their parent page state.
+- Viewer limitations panel reports observed missing objects, unsupported
+  content, font/text approximations and rendering limits with source offsets.
+
 - Restore raster page-segment backgrounds referenced by IPS, including
   blank BPS names inherited from enclosing resources. Decode explicitly
   framed IBM MMR images with declared dimensions; keep this separate from G4.

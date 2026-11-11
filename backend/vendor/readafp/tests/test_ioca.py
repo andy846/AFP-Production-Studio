@@ -54,6 +54,44 @@ def test_group4_ioca_enforces_dimensions_and_element_depth():
     assert image_blob(IocaImage(width=37, height=23, compression=0x82, data=raw, recording=3)) is None
 
 
+@pytest.mark.parametrize(("compression", "tiff_codec", "mode"), [
+    (0x80, "group3", "1"), (0x81, "group3", "1"), (0x09, "tiff_ccitt", "1"),
+    (0x0C, "packbits", "1"), (0x0C, "packbits", "L"), (0x0C, "packbits", "RGB"),
+    (0x0D, "tiff_lzw", "1"), (0x0D, "tiff_lzw", "L"), (0x0D, "tiff_lzw", "RGB"),
+])
+def test_additional_ioca_tiff_codecs_match_pixels(compression, tiff_codec, mode):
+    from PIL import Image
+    image = Image.new(mode, (37, 23), 255 if mode != "RGB" else (255, 240, 80))
+    for xy in ((0, 0), (12, 7), (36, 22)):
+        image.putpixel(xy, 0 if mode != "RGB" else (10, 70, 90))
+    buffer = io.BytesIO()
+    info = {262: 0} if mode == "1" else {}
+    if compression == 0x81:
+        info[292] = 1
+    image.save(buffer, format="TIFF", compression=tiff_codec, tiffinfo=info)
+    with Image.open(io.BytesIO(buffer.getvalue())) as encoded:
+        start, count = encoded.tag_v2[273][0], encoded.tag_v2[279][0]
+        assert len(encoded.tag_v2[273]) == 1
+    bits = {"1": 1, "L": 8, "RGB": 24}[mode]
+    result = image_blob(IocaImage(width=37, height=23, bits=bits, compression=compression,
+                                 data=buffer.getvalue()[start:start + count]))
+    assert result is not None
+    with Image.open(io.BytesIO(result[1])) as actual:
+        assert list(actual.getdata()) == list(image.getdata())
+
+
+def test_uncompressed_bottom_up_rows_and_bit_order_are_honored():
+    img = IocaImage(width=8, height=2, data=b"\x80\x01", recording=3, bit_order=1)
+    result = image_blob(img)
+    assert result is not None
+    assert _png_pixels(result[1]) == b"\x00\x7f\x00\xfe"
+
+
+def test_image_geometry_limits_apply_before_decoding():
+    assert image_blob(IocaImage(width=-1, height=1, data=b"\xff")) is None
+    assert image_blob(IocaImage(width=65535, height=65535, bits=24, data=b"\xff")) is None
+
+
 @pytest.mark.parametrize("black_first_row", [False, True])
 def test_ibm_mmr_first_1d_line_followed_by_2d_lines(black_first_row):
     from PIL import Image
@@ -94,6 +132,7 @@ def test_blank_named_segment_uses_resource_wrapper_and_ips_offsets():
     page, = extract_pages(list(iter_fields(raw)))
     assert len(page.images) == 1
     assert (page.images[0].x, page.images[0].y) == (123, -45)
+
 
 
 def test_group4_image_is_placed_on_the_page_and_emitted_in_svg():

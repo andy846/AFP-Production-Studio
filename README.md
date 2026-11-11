@@ -15,6 +15,10 @@ interface.
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
+See [display compatibility](docs/DISPLAY_COMPATIBILITY.md) for supported
+preview content, measured coverage and remaining limitations. Viewer
+warnings identify recognized omissions and approximations on the selected page.
+
 Version 0.3.0 is for evaluation and UAT. Production approval requires
 further security, performance and printer/RIP reconciliation testing.
 

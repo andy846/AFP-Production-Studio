@@ -83,6 +83,7 @@ class IocaImage:
     data: bytes = b""
     bands: Dict[int, bytes] = field(default_factory=dict)
     recording: int = 1  # RIDIC; only top-to-bottom is decoded for Group 4
+    bit_order: int = 0
 
 
 def parse_image_segment(data: bytes) -> Optional[IocaImage]:
@@ -103,6 +104,8 @@ def parse_image_segment(data: bytes) -> Optional[IocaImage]:
             img.compression = params[0]
             if len(params) > 1:
                 img.recording = params[1]
+            if len(params) > 2:
+                img.bit_order = params[2]
         elif code == 0x96 and params:  # IDE Size
             img.bits = params[0]
         elif code == 0xFE92:  # Image Data
@@ -157,13 +160,13 @@ def _group4_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
     TIFF supplies the geometry; WhiteIsZero is the fax photometric convention.
     No filesystem access, external resources or executable is involved.
     """
-    if (img.bits != 1 or img.recording != 1 or img.width <= 0 or img.height <= 0
+    if (img.bits != 1 or img.recording != 1 or img.bit_order not in (0, 1) or img.width <= 0 or img.height <= 0
             or img.width > 65535 or img.height > 65535
             or img.width * img.height > MAX_GROUP4_PIXELS
             or not 0 < len(img.data) <= MAX_GROUP4_BYTES):
         return None
     try:
-        pixels = _fax_pixels(img.width, img.height, img.data, 4)
+        pixels = _fax_pixels(img.width, img.height, img.data, 4, bit_order=img.bit_order)
         row_bytes = (img.width + 7) // 8
         if len(pixels) != row_bytes * img.height:
             return None
@@ -172,15 +175,23 @@ def _group4_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
         return None
 
 
-def _fax_pixels(width, height, data, compression):
-    tags = [(256, 4, width), (257, 4, height), (258, 3, 1),
-            (259, 3, compression), (262, 3, 0), (266, 3, 1), (273, 4, 0),
-            (277, 3, 1), (278, 4, height), (279, 4, len(data)),
-            (293, 4, 0)]
-    offset = 8 + 2 + 12 * len(tags) + 4
+def _fax_pixels(width, height, data, compression, *, bits=1, options=0, bit_order=0):
+    samples = 3 if bits == 24 else 1
+    depth = 8 if bits == 24 else bits
+    tags = [(256, 4, 1, width), (257, 4, 1, height), (258, 3, samples, depth),
+            (259, 3, 1, compression), (262, 3, 1, 0 if bits == 1 else (2 if samples == 3 else 1)),
+            (266, 3, 1, 2 if bit_order else 1), (273, 4, 1, 0),
+            (277, 3, 1, samples), (278, 4, 1, height), (279, 4, 1, len(data))]
+    if compression in (3, 4):
+        tags.append((292 if compression == 3 else 293, 4, 1, options))
+    tags.sort()
+    end_ifd = 8 + 2 + 12 * len(tags) + 4
+    extra = struct.pack("<HHH", 8, 8, 8) if samples == 3 else b""
+    offset = end_ifd + len(extra)
     header = b"II" + struct.pack("<HIH", 42, 8, len(tags))
-    header += b"".join(struct.pack("<HHII", tag, kind, 1, offset if tag == 273 else value)
-                       for tag, kind, value in tags) + bytes(4)
+    header += b"".join(struct.pack("<HHII", tag, kind, count,
+                       offset if tag == 273 else end_ifd if tag == 258 and samples == 3 else value)
+                       for tag, kind, count, value in tags) + bytes(4) + extra
     from PIL import Image
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -196,10 +207,13 @@ def _ibm_mmr_blob(img):
     EOL/tag transitions, and no per-row EOL in the following 2D data.
     Support explicit EOL+1 / EOL+0 framing with declared dimensions only.
     """
-    if (img.bits != 1 or img.recording != 1 or not 0 < img.width <= 65535
+    if (img.bits != 1 or img.recording != 1 or img.bit_order not in (0, 1) or not 0 < img.width <= 65535
             or not 0 < img.height <= 65535 or img.width * img.height > MAX_GROUP4_PIXELS
             or not 0 < len(img.data) <= MAX_GROUP4_BYTES):
         return None
+    if img.bit_order:
+        reversed_bytes = bytes(int(f"{value:08b}"[::-1], 2) for value in range(256))
+        img = replace(img, data=img.data.translate(reversed_bytes), bit_order=0)
     eol = "000000000001"
     # Only the first row is expanded to a bit string, never the whole image.
     prefix = "".join(f"{b:08b}" for b in img.data[:img.width * 4 + 64])
@@ -245,6 +259,22 @@ def image_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
         return _group4_blob(img)
     if img.compression == COMPRESSION_IBM_MMR:
         return _ibm_mmr_blob(img)
+    if img.compression in (0x09, 0x0C, 0x0D, 0x80, 0x81):
+        if (img.recording != 1 or img.bit_order not in (0, 1) or img.bits not in (1, 8, 24)
+                or not 0 < img.width <= 65535 or not 0 < img.height <= 65535
+                or img.width * img.height * max(1, img.bits // 8) > 64_000_000
+                or not 0 < len(img.data) <= MAX_GROUP4_BYTES
+                or img.compression in (0x09, 0x80, 0x81) and img.bits != 1):
+            return None
+        compression = {0x09: 2, 0x0C: 32773, 0x0D: 5, 0x80: 3, 0x81: 3}[img.compression]
+        try:
+            pixels = _fax_pixels(img.width, img.height, img.data, compression, bits=img.bits,
+                                 options=1 if img.compression == 0x81 else 0, bit_order=img.bit_order)
+            row_bytes = (img.width * img.bits + 7) // 8
+            return "image/png", pack_png(img.width, img.height, 1 if img.bits == 1 else 8,
+                                        2 if img.bits == 24 else 0, row_bytes, pixels)
+        except (ImportError, OSError, ValueError, Warning):
+            return None
     if img.compression == COMPRESSION_JPEG:
         start = img.data.find(b"\xff\xd8")
         if start >= 0:
@@ -252,6 +282,17 @@ def image_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
         return None
     if img.compression != COMPRESSION_NONE:
         return None
+    if (img.bits not in (1, 8, 24) or img.recording not in (1, 3) or img.bit_order not in (0, 1)
+            or not 0 < img.width <= 65535 or not 0 < img.height <= 65535
+            or img.width * img.height * max(1, img.bits // 8) > 64_000_000):
+        return None
+    row_bytes = (img.width * img.bits + 7) // 8
+    if img.recording == 3 and img.height > 0 and len(img.data) >= row_bytes * img.height:
+        img = replace(img, data=b"".join(img.data[row * row_bytes:(row + 1) * row_bytes]
+                                       for row in range(img.height - 1, -1, -1)), recording=1)
+    if img.bit_order:
+        table = bytes(int(f"{value:08b}"[::-1], 2) for value in range(256))
+        img = replace(img, data=img.data.translate(table), bit_order=0)
     if not img.data or img.width <= 0 or img.height <= 0:
         return None
     if img.bits == 1:

@@ -203,11 +203,21 @@ def _vector_graphic_markup(vg: VectorGraphic) -> str:
 
 def page_to_svg(page: Page) -> str:
     """Build an SVG document string for one page."""
+    issues = list(page.render_issues)
+    if page.coded_text_incomplete:
+        issues.append({"code": "GLYPH_OR_TEXT_MAPPING_INCOMPLETE", "offset": None,
+                       "message": "Some glyphs have no reliable text mapping or are unavailable. Check the source fonts."})
+    if page.truncated:
+        issues.append({"code": "RENDER_LIMIT", "offset": None, "message": "Some page content exceeds the preview limits."})
+    if any(note.cat in ("font", "glyph", "codepage") for run in page.texts for note in run.notes):
+        issues.append({"code": "FONT_OR_TEXT_APPROXIMATION", "offset": None,
+                       "message": "Font substitutions or text decoding approximations affect this preview."})
+    issue_attr = (" data-render-issues=" + quoteattr(json.dumps(issues, separators=(",", ":")))) if issues else ""
     parts: List[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {page.width} {page.height}" '
         f'data-upi="{page.units_per_inch}" '
-        f'font-family="Arial, Helvetica, sans-serif">',
+        f'font-family="Arial, Helvetica, sans-serif"{issue_attr}>',
         f'<rect width="{page.width}" height="{page.height}" fill="#ffffff"/>',
     ]
     if any(img.bands for img in page.images):
