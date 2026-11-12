@@ -113,6 +113,7 @@ exe = EXE(
     a.datas,
     [],
     name="AFP-Production-Studio",
+    icon=os.path.join(REPO_ROOT, "frontend", "static", "studio-icon.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -104,8 +104,8 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
 
     @app.get("/favicon.ico")
     def favicon():
-        """Older browsers probe /favicon.ico even when a SVG icon is linked."""
-        return redirect(url_for("static", filename="favicon.svg"))
+        """Use the same identity in browser tabs and the native desktop shell."""
+        return redirect(url_for("static", filename="studio-icon.ico"))
 
     return app
 

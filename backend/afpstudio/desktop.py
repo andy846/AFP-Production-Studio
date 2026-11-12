@@ -18,15 +18,19 @@ left behind.
 from __future__ import annotations
 
 import threading
+import sys
+import logging
 from pathlib import Path
 from typing import Any
 
 from .app import create_app
 from .config import CONFIG, Config
 from .security.paths import FileGrants, PathError, resolve_selected_file
+from .resources import frontend_dir
 
 #: The title of the native window.
 WINDOW_TITLE = "AFP Production Studio"
+WINDOW_APP_ID = "Andy846.AFPProductionStudio"
 
 #: The default size of the window, in logical pixels.
 WINDOW_WIDTH = 1440
@@ -35,6 +39,21 @@ WINDOW_HEIGHT = 900
 #: The smallest useful size, in logical pixels.
 WINDOW_MIN_WIDTH = 800
 WINDOW_MIN_HEIGHT = 600
+
+
+def _set_windows_app_id() -> None:
+    """Keep the taskbar identity stable in source and packaged launches."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        set_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        set_id.argtypes = [ctypes.c_wchar_p]
+        set_id.restype = ctypes.c_long
+        if set_id(WINDOW_APP_ID) < 0:
+            logging.getLogger(__name__).warning("Windows taskbar identity could not be set.")
+    except (OSError, AttributeError):
+        logging.getLogger(__name__).warning("Windows taskbar identity is unavailable.")
 
 
 class DesktopBridge:
@@ -244,6 +263,7 @@ def run_desktop(config: Config | None = None, startup_file: str | None = None) -
     print("Close the window to stop it.")
 
     bridge = DesktopBridge(startup_file=str(approved_file) if approved_file else startup_file, file_grants=grants, startup_error=startup_error)
+    _set_windows_app_id()
     window = webview.create_window(
         WINDOW_TITLE,
         url,
@@ -262,7 +282,7 @@ def run_desktop(config: Config | None = None, startup_file: str | None = None) -
     window.events.closed += _on_closed
 
     try:
-        webview.start()
+        webview.start(icon=str(frontend_dir() / "static" / "studio-icon.ico"))
     finally:
         server.stop()
     return 0

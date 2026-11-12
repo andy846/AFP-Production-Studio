@@ -2,6 +2,8 @@
 
 ## 0.3.1 — Unreleased
 
+- Dedicated application icon in the Windows taskbar, native window, EXE and
+  browser tab; stable Windows application identity for desktop launches.
 - Incomplete previews are explicitly labelled and their issue panel opens
   automatically. Issues identify unavailable resources, invalid data,
   unsupported content and approximations; source offsets link to Structure.

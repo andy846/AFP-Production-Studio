@@ -68,6 +68,7 @@ def fake_webview(monkeypatch):
     module.FileDialog = types.SimpleNamespace(OPEN=10, SAVE=30)
     created = []
     checked = []
+    start_options = []
 
     def create_window(title, url, **kwargs):
         window = _FakeWindow(title, url, **kwargs)
@@ -75,6 +76,7 @@ def fake_webview(monkeypatch):
         return window
 
     def start(*args, **kwargs):
+        start_options.append(kwargs)
         for window in created:
             with urllib.request.urlopen(window.url, timeout=10) as response:
                 checked.append(("index", response.status))
@@ -86,7 +88,7 @@ def fake_webview(monkeypatch):
     module.create_window = create_window
     module.start = start
     monkeypatch.setitem(sys.modules, "webview", module)
-    return {"windows": created, "checked": checked}
+    return {"windows": created, "checked": checked, "start_options": start_options}
 
 
 @pytest.fixture
@@ -114,6 +116,17 @@ def test_the_desktop_window_serves_the_application(fake_webview, desktop_env):
     run_desktop()
     checked = fake_webview["checked"]
     assert ("index", 200) in checked
+
+
+def test_desktop_uses_the_bundled_icon(fake_webview, desktop_env):
+    from pathlib import Path
+    from afpstudio.desktop import run_desktop
+    from afpstudio.resources import frontend_dir
+
+    run_desktop()
+    icon = Path(fake_webview["start_options"][0]["icon"])
+    assert icon == frontend_dir() / "static" / "studio-icon.ico"
+    assert icon.is_file()
 
 
 def test_the_desktop_window_serves_the_health_endpoint(
