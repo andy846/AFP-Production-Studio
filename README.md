@@ -10,15 +10,14 @@ Everything runs on the machine it is started on. No document content is
 uploaded, there is no telemetry, and the server binds to the loopback
 interface.
 
-[![Release v0.3.0](https://img.shields.io/badge/release-v0.3.0-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.3.0)
+[![Release v0.3.1](https://img.shields.io/badge/release-v0.3.1-e6a23c)](https://github.com/andy846/AFP-Production-Studio/releases/tag/v0.3.1)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-4cc38a)](LICENSE)
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
-The local 0.3.1 development build adds workflow navigation and full-document
+Version 0.3.1 adds workflow navigation and full-document
 [PDF export](docs/PDF_EXPORT.md). PDF is a raster preview with explicit
-limitations, not production RIP validation. This update has not been published
-as a GitHub release.
+limitations, not production RIP validation.
 
 See [display compatibility](docs/DISPLAY_COMPATIBILITY.md) for supported
 preview content, measured coverage and remaining limitations. Viewer

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 — Unreleased
+## 0.3.1 — 2026-11-13
 
 - Workflow navigation with four primary workspaces, an accessible Tools menu,
   narrow-window side drawers, layout reset and a persistent PDF task indicator.

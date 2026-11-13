@@ -1,7 +1,7 @@
 # Workflow and PDF upgrade verification
 
 Local Windows verification, 2026-11-13, Python 3.11.3, Studio 0.3.1 development
-build. This is not a GitHub release or a production RIP fidelity approval.
+build. These checks do not constitute a production RIP fidelity approval.
 
 ## Executed checks
 
@@ -54,8 +54,8 @@ differences. They are not newly passing cases.
 
 The PDF writer adds no runtime PDF dependency. PyInstaller archive inspection
 confirmed test-only `fitz`, `pymupdf`, `pypdf` and `psutil` modules are absent.
-The CI workflow installs the independent readers for testing only; no new remote
-GitHub Actions run or GitHub release was triggered during this task.
+The CI workflow installs the independent readers for testing only; the recorded
+test results above are local and do not represent a remote GitHub Actions run.
 
 PDF is raster preview fidelity, without selectable text, PDF/A/PDF/X conformance
 or printer/RIP equivalence. Existing AFP rendering limitations still apply. A
