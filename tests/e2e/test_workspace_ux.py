@@ -41,6 +41,7 @@ def test_multiple_documents_and_keyboard_navigation(tmp_path, monkeypatch):
                     page.locator("#page-number").dispatch_event("change")
                     page.wait_for_function("() => document.querySelector('#page-number').value === '3'")
             assert page.locator(".document-tab").count() == 2
+            page.locator("#tools-toggle").click()
             page.locator('[data-tab="compare"]').click()
             page.locator("#recent-open").click()
             page.locator("#opener-back").click()

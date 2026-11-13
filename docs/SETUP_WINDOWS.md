@@ -215,6 +215,7 @@ single operator on a single machine.
 | `AFP_STUDIO_MAX_LOCAL_FILE_BYTES` | 8 GiB | The largest file that may be opened |
 | `AFP_STUDIO_PAGE_CACHE_BYTES` | 64 MiB | The rendered page cache budget |
 | `AFP_STUDIO_MAX_JOBS` | 2 | Concurrent background jobs |
+| `AFP_STUDIO_PDF_TIMEOUT_SECONDS` | 14400 | PDF export deadline; one PDF executes at a time |
 | `AFP_STUDIO_DATA_DIR` | `%LOCALAPPDATA%\AFP-Production-Studio` | Where profiles and the session key live |
 | `AFP_STUDIO_ALPHEUS_JAR` | unset | The Java adapter jar |
 | `AFP_STUDIO_JAVA` | `java` | The Java executable |

@@ -95,3 +95,39 @@ with the number of structured fields, not with the bytes in a page.
 Do not treat the figures in this table as a benchmark. They exist so a
 claim about large-file behaviour can be checked against the same
 procedure.
+
+## Streaming PDF export: Windows 11, Python 3.11.3
+
+Measured with `scripts/benchmark_pdf.py` in separate fresh processes. Each
+synthetic AFP page contains two rendered rules and exercises indexed AFP replay,
+SVG generation, resvg rasterization, PNG decode and lossless PDF writing. These
+measurements ran on a shared development machine alongside other verification.
+
+| Pages | Raster per page at 150 dpi | Export seconds | PDF bytes | Process peak RSS |
+|---:|---|---:|---:|---:|
+| 1,000 | 60 × 60 (10.16mm square) | 1.6638 | 594,254 | 34.7 MiB |
+| 10,000 | 60 × 60 (10.16mm square) | 21.2836 | 6,018,266 | 58.9 MiB |
+| 20,000 | 60 × 60 (10.16mm square) | 38.3027 | 12,058,267 | 82.8 MiB |
+| 100 | 1,240 × 1,754 (approximately A4) | 23.3805 | 697,843 | 57.5 MiB |
+
+The small-raster runs verify large page counts, page-tree/xref growth and
+streaming behavior; they are **not A4 throughput measurements**. The A4 run
+contains simple rules rather than production text, images or resource-heavy
+pages. None of these timings predicts an arbitrary customer's AFP conversion
+speed. AFP index and compact page/reference metadata still grow with page count;
+the exporter does not retain every page's raster. RSS includes native allocations,
+not just Python heap. The workload samples RSS every 10ms and reports Windows'
+process peak working set as well.
+
+Reproduce:
+
+```powershell
+python scripts/benchmark_pdf.py
+python scripts/benchmark_pdf.py --pages 100 --width-mm 210 --height-mm 297
+```
+
+One operator-supplied local 26-page AFP was additionally exported in full at
+150 dpi: 26 PDF pages, 4,082,406 bytes, 24.68 seconds and zero rendering warnings.
+An independent reader confirmed the page count and the input SHA-256 was
+unchanged. This is a local compatibility check, not a production fidelity
+certification; the input and resulting PDF are not part of the repository.

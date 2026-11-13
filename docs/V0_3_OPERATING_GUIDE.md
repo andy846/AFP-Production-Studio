@@ -24,10 +24,12 @@ source, use `scripts/run.ps1 -Desktop`; `--web` remains available. See
    is allowed. The tool refuses inherited print-file resources, unsupported
    fields, malformed brackets and map-name collisions. It does not rename
    resources or split arbitrary page ranges.
-5. **Preview**: export one PNG page or up to 20 TIFF/PDF pages at the supported
-   72–200 dpi, subject to 32 million aggregate pixels and known page dimensions.
-   PDF is raster, not searchable/vector output; the outputs have preview
-   fidelity and may differ from the RIP. They are not AFP conversion proofs.
+5. **Export PDF**: use Viewer’s Export PDF button or Ctrl+Shift+E. Export all
+   pages, the current page or a range at 150/200/300 dpi with progress and
+   cancellation. Missing content stops output until explicitly accepted; fatal
+   errors cannot be overridden. See [PDF export](PDF_EXPORT.md). PDF is raster,
+   not searchable/vector or production RIP output. PNG remains one page and
+   TIFF retains its 20-page/32-million-pixel aggregate preview limits.
 6. **Batch**: enter permitted paths (one per line). Uses the selected profile
    and explicit framing, with no external FormDefs or independent parser.
    The result distinguishes complete counts from partial counts; actual

@@ -12,7 +12,7 @@
 <body>
   <header class="masthead">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
+      <img class="brand-mark" src="{{ url_for('static', filename='studio-icon.png') }}" width="36" height="36" alt="">
       <span class="brand-text">
         <strong>AFP Production Studio</strong>
         <em>AFP viewing &amp; print inspection</em>
@@ -20,9 +20,15 @@
     </div>
     <div class="masthead-doc" id="doc-chip" hidden>
       <span id="doc-name">no document</span>
+      <span class="doc-status-label">Media preflight:</span>
       <span class="status-pill" id="doc-status" data-status="unresolved" title="Media preflight status">unresolved</span>
+      <span class="status-pill" id="doc-preview-status" title="Known rendering limitations, not independent RIP verification">Preview: loading</span>
     </div>
     <div class="masthead-tools">
+      <div id="task-tray" class="task-tray" aria-label="PDF export task">
+        <button type="button" id="task-tray-open" title="Show PDF export">PDF export</button>
+        <span id="pdf-task-tray" role="status" aria-live="polite">No active export</span>
+      </div>
       <button type="button" class="primary" id="open-new">Open AFP</button>
       <button type="button" id="recent-open" title="Recent files (Ctrl+Shift+O)">Recent</button>
       <button type="button" id="shortcut-help" title="Show keyboard shortcuts">Shortcuts</button>
@@ -93,18 +99,25 @@
   </section>
 
   <nav id="document-tabs" class="document-tabs" aria-label="Open documents"></nav>
-  <nav class="tabs" id="tabs">
+  <nav class="tabs" id="tabs" aria-label="Workspace">
     <button type="button" class="panel-toggle" id="toggle-tree" aria-controls="tree-panel" aria-expanded="true">Document tree</button>
     <button class="tab is-active" data-tab="viewer" aria-current="page">Viewer</button>
-    <button class="tab" data-tab="compare">Compare</button>
-    <button class="tab" data-tab="structure">Structure</button>
-    <button class="tab" data-tab="document-index">Document Index</button>
     <button class="tab" data-tab="preflight">Media Preflight</button>
-    <button class="tab" data-tab="resources">Resources</button>
-    <button class="tab" data-tab="engineering">Engineering</button>
-    <button class="tab" data-tab="batch">Batch</button>
+    <button class="tab" data-tab="export" aria-controls="panel-export">Export</button>
     <button class="tab" data-tab="report">Production Report</button>
-    <button class="tab" data-tab="settings">Settings</button>
+    <div class="tools-menu-wrap">
+      <button type="button" class="tools-toggle" id="tools-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="tools-menu">Tools<span id="tools-active-label"></span><span aria-hidden="true"> ▾</span></button>
+      <div class="tools-menu" id="tools-menu" role="menu" aria-label="Tools" hidden>
+        <button type="button" class="tab" data-tab="compare" role="menuitem">Compare</button>
+        <button type="button" class="tab" data-tab="structure" role="menuitem">Structure</button>
+        <button type="button" class="tab" data-tab="document-index" role="menuitem">Document Index</button>
+        <button type="button" class="tab" data-tab="resources" role="menuitem">Resources</button>
+        <button type="button" class="tab" data-tab="engineering" role="menuitem">Engineering</button>
+        <button type="button" class="tab" data-tab="batch" role="menuitem">Batch</button>
+        <button type="button" class="tab" data-tab="settings" role="menuitem">Settings</button>
+      </div>
+    </div>
+    <button type="button" class="panel-toggle" id="reset-layout" title="Restore default panel widths and visibility">Reset layout</button>
     <button type="button" class="panel-toggle details-toggle" id="toggle-details" aria-controls="details-panel" aria-expanded="true">Page details</button>
   </nav>
 
@@ -112,6 +125,7 @@
     <aside class="panel tree-panel" id="tree-panel">
       <div class="panel-head">
         <h2>AFP tree</h2>
+        <button type="button" class="drawer-close ghost small" data-close-drawer="tree" aria-label="Close document tree">Close tree</button>
         <button type="button" class="ghost small" id="toggle-thumbnails" aria-pressed="false" aria-controls="thumbnail-panel" disabled>Thumbnails</button>
         <button class="ghost small" id="close-document" title="Close the document">Close</button>
       </div>
@@ -136,6 +150,7 @@
       <div class="panel-head">
         <h2>Page viewer</h2>
         <div class="viewer-tools">
+          <button type="button" class="small" id="export-pdf">Export PDF…</button>
           <button class="ghost small" id="zoom-out" title="Zoom out">&minus;</button>
           <span class="zoom-readout" id="zoom-readout">100%</span>
           <button class="ghost small" id="zoom-in" title="Zoom in">+</button>
@@ -159,6 +174,48 @@
       <div class="viewer-stage" id="viewer-stage" tabindex="0" aria-label="AFP page viewer">
         <div class="viewer-empty" id="viewer-empty">No page selected.</div>
         <div class="page-holder" id="page-holder"></div>
+      </div>
+    </section>
+
+    <section class="panel main-panel export-panel" id="panel-export" data-panel="export" aria-labelledby="export-title" hidden>
+      <div class="panel-head"><h2 id="export-title">Export PDF</h2><span class="panel-note">Raster preview</span></div>
+      <div class="export-content">
+        <p class="export-intro">Save a PDF preview of your AFP pages. Review preview limitations before sharing the output.</p>
+        <div class="export-source"><span>Source document</span><strong id="pdf-source">Open an AFP document to export.</strong></div>
+        <form id="pdf-export-form" class="pdf-export-form">
+          <fieldset>
+            <legend>Pages and quality</legend>
+            <div class="export-fields">
+              <label for="pdf-pages-mode">Pages</label>
+              <select id="pdf-pages-mode" name="selection"><option value="all">All pages</option><option value="current">Current page</option><option value="range">Page range</option></select>
+              <label for="pdf-range">Page range</label>
+              <input type="text" id="pdf-range" name="page_range" placeholder="1-5,8" spellcheck="false" aria-describedby="pdf-range-help">
+              <p id="pdf-range-help" class="form-hint">For Page range, enter page numbers starting at 1, for example 1-5,8.</p>
+              <label for="pdf-dpi">Resolution</label>
+              <select id="pdf-dpi" name="dpi" aria-describedby="pdf-dpi-help"><option value="150" selected>150 DPI · Standard</option><option value="200">200 DPI · Higher detail</option><option value="300">300 DPI · Highest detail</option></select>
+              <p id="pdf-dpi-help" class="form-hint">Higher resolution increases export time and file size.</p>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Destination</legend>
+            <label for="pdf-path">PDF file path</label>
+            <div class="path-row"><input type="text" id="pdf-path" name="path" spellcheck="false" autocomplete="off" placeholder="Full path ending in .pdf"><button type="button" id="pdf-browse" hidden>Save as…</button></div>
+          </fieldset>
+          <div class="export-actions">
+            <button type="submit" class="primary" id="pdf-start">Export PDF</button>
+            <button type="button" id="pdf-cancel" disabled>Cancel export</button>
+            <button type="button" id="pdf-accept-limitations" hidden>Accept limitations and export</button>
+          </div>
+        </form>
+        <section class="export-feedback" aria-label="PDF export progress and result">
+          <label for="pdf-progress">Export progress</label>
+          <progress id="pdf-progress" max="1" value="0"></progress>
+          <p id="pdf-status" role="status" aria-live="polite">Ready. Choose pages and a destination.</p>
+          <ul id="pdf-warning-list" class="pdf-warning-list" aria-label="PDF preview limitations"></ul>
+          <div id="pdf-result" class="pdf-result" aria-live="polite"></div>
+          <div class="export-actions"><button type="button" id="pdf-open" hidden>Open PDF</button><button type="button" id="pdf-reveal" hidden>Show in folder</button></div>
+        </section>
+        <p class="export-fidelity">PDF output uses Studio’s raster preview. Fonts, images and print controls may have preview limitations; review any warnings with the source document.</p>
       </div>
     </section>
 
@@ -338,6 +395,7 @@
     <aside class="panel details-panel" id="details-panel">
       <div class="panel-head">
         <h2>Page details</h2>
+        <button type="button" class="drawer-close ghost small" data-close-drawer="details" aria-label="Close page details">Close details</button>
       </div>
       <div class="details" id="details"></div>
       <div id="details-resize" class="panel-resize panel-resize-left" role="separator" tabindex="0" aria-label="Resize page details" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="480" aria-valuenow="300"></div>
@@ -430,6 +488,8 @@
     </form>
   </dialog>
   <script src="{{ url_for('static', filename='compare.js') }}"></script>
+  <script src="{{ url_for('static', filename='pdf-export.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='workflow.js') }}"></script>
 </body>
 </html>

@@ -120,6 +120,8 @@
     button.addEventListener("click", async () => {
       if (saving) return;
       saving = true;
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
       const previous = root.dataset.theme;
       const theme = previous === "dark" ? "light" : "dark";
       apply(theme);
@@ -130,6 +132,8 @@
         setStatus("Could not save appearance. " + err.message);
       } finally {
         saving = false;
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
       }
     });
   }
@@ -910,6 +914,7 @@
       window.addEventListener("workspace-preferences", (event) => {
         update(event.detail[prop === "--tree-width" ? "tree_width" : "details_width"]);
       });
+      window.addEventListener("studio-reset-layout", () => { update(initial); persist(); });
       let persistTimer;
       const persist = () => {
         clearTimeout(persistTimer);
@@ -1095,6 +1100,10 @@
     if (!Array.isArray(issues)) issues = [{impact: "omission", category: "invalid_data", message: "Preview diagnostics have an invalid format."}];
     panel.hidden = !issues.length;
     const incomplete = issues.some(issue => issue.impact !== "approximation");
+    $("doc-preview-status").textContent = !svg ? "Preview: loading" : issues.length ?
+      (incomplete ? "Preview: incomplete" : "Preview: approximate") : "Preview: no known issues";
+    $("doc-preview-status").dataset.status = !svg ? "loading" :
+      incomplete ? "fail" : issues.length ? "warning" : "unverified";
     panel.dataset.state = incomplete ? "incomplete" : "approximate";
     panel.open = incomplete;
     $("render-warning-summary").textContent = (incomplete ? "Incomplete preview" : "Approximate preview") +
@@ -1182,6 +1191,8 @@
       holder.textContent = "";
       $("viewer-empty").hidden = false;
       $("viewer-empty").textContent = err.message;
+      $("doc-preview-status").textContent = "Preview: failed";
+      $("doc-preview-status").dataset.status = "fail";
     }
   }
 
@@ -2078,10 +2089,14 @@
       });
     };
     operationSelect.addEventListener("change", updateFields);
+    operationSelect.addEventListener("change", () => {
+      if (operationSelect.value === "pdf") document.querySelector('[data-tab="export"]').click();
+    });
     updateFields();
     whenNativeReady(() => { $("engineering-browse").hidden = false; });
     $("engineering-browse").addEventListener("click", async () => {
       const operation = $("engineering-operation").value;
+      if (operation === "pdf") { document.querySelector('[data-tab="export"]').click(); return; }
       const suffix = ["copy", "edit", "extract", "merge"].includes(operation) ? "afp" : operation;
       const path = await pickSavePath("output." + suffix, suffix);
       if (path) $("engineering-path").value = path;
@@ -2234,6 +2249,21 @@
     initPanelResizing();
     initWorkspacePreferences();
     initTheme();
+    window.addEventListener("studio-reset-layout", () => {
+      $("workspace").classList.remove("tree-collapsed", "details-collapsed");
+      $("toggle-tree").setAttribute("aria-expanded", "true");
+      $("toggle-details").setAttribute("aria-expanded", "true");
+      fitPage();
+    });
+    window.initPdfExport({api, nativeApi, pickSavePath, whenNativeReady, confirmOverwrite,
+      getDocument: () => state.document, getPage: () => state.page,
+      locate: async (id, page, offset) => {
+        if (!documents.has(id)) { setStatus("Open the source document again to inspect this warning."); return; }
+        if (state.document?.document_id !== id) await activateDocument(id);
+        document.querySelector('[data-tab="viewer"]').click();
+        await showPage(page);
+        if (state.document?.document_id === id && Number.isInteger(offset)) inspectRenderField(offset);
+      }});
     initSearch();
     window.initCompareWorkbench({api, nativeApi, pickSavePath,
       documents: () => [...documents.values()].map((item) => item.summary),
@@ -2281,6 +2311,9 @@
       if (event.isComposing || event.defaultPrevented || document.querySelector("dialog[open]")) return;
       const editable = event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])");
       const key = event.key.toLowerCase();
+      if (event.ctrlKey && event.shiftKey && !event.altKey && key === "e" && state.document) {
+        event.preventDefault(); $("export-pdf").click(); return;
+      }
       if (event.ctrlKey && event.shiftKey && !event.altKey && key === "o") {
         event.preventDefault(); $("recent-open").click(); return;
       }

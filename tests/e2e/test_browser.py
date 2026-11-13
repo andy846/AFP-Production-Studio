@@ -39,11 +39,14 @@ def test_workbench_index_and_engineering_in_real_browser(tmp_path, monkeypatch):
             page.locator("#page-holder svg").wait_for(timeout=30000)
             assert page.locator("#page-total").inner_text() == "/ 4"
             for tab in ("structure", "preflight", "resources", "report", "settings", "document-index"):
+                if tab not in ("preflight", "report"):
+                    page.locator("#tools-toggle").click()
                 page.locator(f'[data-tab="{tab}"]').click()
                 assert page.locator(f'[data-panel="{tab}"]').is_visible()
             page.locator("#index-kind").select_option("text_runs")
             page.locator("#index-codepage").select_option("cp500")
             page.wait_for_function("() => document.querySelector('#document-index-table').textContent.includes('AFP Production Studio')")
+            page.locator("#tools-toggle").click()
             page.locator('[data-tab="engineering"]').click()
             target = tmp_path / "copy.afp"
             page.locator("#engineering-path").fill(str(target))

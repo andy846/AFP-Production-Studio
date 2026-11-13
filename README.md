@@ -15,6 +15,11 @@ interface.
 
 The release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
+The local 0.3.1 development build adds workflow navigation and full-document
+[PDF export](docs/PDF_EXPORT.md). PDF is a raster preview with explicit
+limitations, not production RIP validation. This update has not been published
+as a GitHub release.
+
 See [display compatibility](docs/DISPLAY_COMPATIBILITY.md) for supported
 preview content, measured coverage and remaining limitations. Viewer
 warnings identify recognized omissions and approximations on the selected page.

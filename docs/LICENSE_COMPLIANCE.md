@@ -146,6 +146,10 @@ with the vendored source.
 
 ## v0.3 preview and dependency notices
 
+* The streaming raster PDF writer is Studio code and adds no runtime PDF
+  dependency. pypdf and PyMuPDF are independent test readers only; their packages
+  are explicitly excluded from the executable. PyMuPDF's separate terms must
+  be reviewed if someone changes that packaging boundary.
 * `resvg-py` 0.5.0 uses the MIT licence. Its wheel carries `LICENSE` and
   a CycloneDX SBOM covering embedded Rust components. The spec retains
   package metadata including these files. See [upstream](https://github.com/baseplate-admin/resvg-py).

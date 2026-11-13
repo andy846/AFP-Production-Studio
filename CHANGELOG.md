@@ -2,6 +2,15 @@
 
 ## 0.3.1 — Unreleased
 
+- Workflow navigation with four primary workspaces, an accessible Tools menu,
+  narrow-window side drawers, layout reset and a persistent PDF task indicator.
+- Full-document/current/range PDF export with lossless streaming raster pages,
+  150/200/300 dpi controls, physical page sizes, progress and cancellation.
+  Recognized omissions stop export until explicitly accepted; fatal source,
+  geometry and raster failures cannot be overridden. Existing outputs require
+  confirmation and publication revalidates source ownership under lock.
+- Faster page replay selection reuses the document field index instead of
+  scanning every page's fields for each selected page.
 - Dedicated application icon in the Windows taskbar, native window, EXE and
   browser tab; stable Windows application identity for desktop launches.
 - Incomplete previews are explicitly labelled and their issue panel opens
