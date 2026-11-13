@@ -10,6 +10,7 @@ from __future__ import annotations
 from flask import Flask, redirect, render_template, session, url_for, request
 
 from .api import bp as api_blueprint
+from .api.pdf import bp as pdf_blueprint
 from .config import CONFIG, Config
 from .document_model.model import DocumentStore
 from .parser_adapters.alpheus import AlpheusAdapter
@@ -71,6 +72,7 @@ def create_app(config: Config | None = None, startup_file=None, file_grants=None
     }
 
     app.register_blueprint(api_blueprint)
+    app.register_blueprint(pdf_blueprint)
 
     @app.before_request
     def _bounded_json():

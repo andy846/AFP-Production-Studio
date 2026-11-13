@@ -54,6 +54,9 @@ class Job:
     message: str = ""
     result: Any = None
     error: str = ""
+    error_code: str = ""
+    error_details: dict = field(default_factory=dict)
+    timeout_seconds: float | None = None
     committed: bool = False
     created: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -71,6 +74,8 @@ class Job:
             "progress": round(self.progress, 4),
             "message": self.message,
             "error": self.error,
+            "error_code": self.error_code,
+            "error_details": self.error_details,
             "created": self.created,
             "finished": self.finished,
             "has_result": self.result is not None,
@@ -130,6 +135,7 @@ class JobManager:
         self.max_pending = max_pending
         self._queue = queue.Queue()
         self._workers = set()
+        self._pdf_gate = threading.Lock()
 
     def submit(
         self,
@@ -139,11 +145,12 @@ class JobManager:
         *,
         document_id: str | None = None,
         related_document_ids: tuple[str, ...] = (),
+        timeout_seconds: float | None = None,
     ) -> Job:
         """Queue a job and return its handle."""
         job_id = uuid.uuid4().hex
         job = Job(id=job_id, kind=kind, label=label, document_id=document_id,
-                  related_document_ids=related_document_ids)
+                  related_document_ids=related_document_ids, timeout_seconds=timeout_seconds)
         cancel = threading.Event()
         self.prune(keep=128)
         with self._lock:
@@ -168,9 +175,21 @@ class JobManager:
                         self._workers.discard(threading.current_thread())
                         return
                 continue
+            pdf_acquired = False
             try:
+                job = self.get(job_id)
+                cancelled = self._cancel.get(job_id)
+                if job and job.kind == "pdf-export" and not (cancelled and cancelled.is_set()):
+                    pdf_acquired = self._pdf_gate.acquire(blocking=False)
+                    if not pdf_acquired:
+                        # Keep the second worker available for open/search jobs.
+                        self._queue.put((job_id, work))
+                        time.sleep(.02)
+                        continue
                 self._run(job_id, work)
             finally:
+                if pdf_acquired:
+                    self._pdf_gate.release()
                 self._queue.task_done()
 
     def _run(self, job_id: str, work: Callable[[JobContext], Any]) -> None:
@@ -184,7 +203,9 @@ class JobManager:
                 self._finish(job_id, CANCELLED, "Cancelled before it started.")
                 return
             job.state = RUNNING
-            context = JobContext(job, cancel or threading.Event(), self.timeout_seconds, self._lock)
+            context = JobContext(job, cancel or threading.Event(),
+                                 job.timeout_seconds if job.timeout_seconds is not None else self.timeout_seconds,
+                                 self._lock)
             result = work(context)
             context.check_cancelled()
             with self._lock:
@@ -212,6 +233,8 @@ class JobManager:
             ).strip()
             if job is not None:
                 job.error = detail or exc.__class__.__name__
+                job.error_code = getattr(exc, "code", "job_failed")
+                job.error_details = getattr(exc, "details", {})
             self._finish(
                 job_id, FAILED, job.error if job else "Job failed."
             )

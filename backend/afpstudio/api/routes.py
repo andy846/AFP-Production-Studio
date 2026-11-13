@@ -779,6 +779,9 @@ def engineering(document_id):
         return error
     payload = request.get_json(silent=True) or {}
     operation = payload.get("operation")
+    if operation == "pdf":
+        from .pdf import submit_pdf_export
+        return submit_pdf_export(document, payload, legacy=True)
     if operation not in ("copy", "edit", "extract", "merge", "png", "pdf", "tiff"):
         return _error("Select a supported engineering operation.")
     additional_paths = []

@@ -1,0 +1,3 @@
+# Independent PDF readers for synthetic verification only, never frozen.
+pypdf==7.0.1
+PyMuPDF==2.1

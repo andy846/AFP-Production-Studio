@@ -54,6 +54,10 @@ def validate_svg(svg):
 
 
 def convert_preview(document, target, fmt, pages, *, dpi=144, overwrite=False, check_cancelled=None, publisher=None):
+    if fmt == "pdf":
+        from .pdf_export import export_pdf
+        return export_pdf(document, target, pages, dpi=dpi, overwrite=overwrite,
+                          check_cancelled=check_cancelled, publisher=publisher)
     check = check_cancelled or (lambda: None)
     if fmt not in ("png", "tiff", "pdf") or type(dpi) is not int or not 72 <= dpi <= 200:
         raise ConversionError("Select PNG, TIFF or raster PDF at 72-200 dpi.")

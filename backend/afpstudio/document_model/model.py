@@ -287,9 +287,11 @@ class DocumentStore:
                     if not self._opening[path]:
                         del self._opening[path]
 
-    def publish_output(self, target, roots, action, *, sources=()):
+    def publish_output(self, target, roots, action, *, sources=(), expected_document=None):
         """Hold the source registration lock through the final rename."""
         with self._lock:
+            if expected_document is not None and self._documents.get(expected_document.document_id) is not expected_document:
+                raise SourceChangedError("The source document was closed before publishing.")
             protected = set(sources) | set(self._opening)
             for session in self._documents.values():
                 protected.update(session.source_signatures)

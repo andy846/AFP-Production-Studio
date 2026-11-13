@@ -145,6 +145,22 @@ class PageRenderer:
         self.codepage = codepage
         self.embed_small_fonts = embed_small_fonts
         self._extra: list[str] | None = None
+        self._shared_fields: list[int] | None = None
+
+    def replay_fields(self, page: int) -> list[int]:
+        """Merge document state with one page without rescanning every page."""
+        if self._shared_fields is None:
+            self._shared_fields = select_global_fields(self.index)
+        shared = self._shared_fields
+        bounds = self.index.fields_for_page(page)
+        low = bisect_left(shared, bounds.start)
+        high = bisect_left(shared, bounds.stop, lo=low)
+        selection = shared[:low]
+        selection.extend(i for i in bounds if self.index.pages[i] == page
+                         or self.index.scopes[i] or not self.index.in_page[i]
+                         or self.index.sf_ids[i] in ALWAYS_INCLUDE)
+        selection.extend(shared[high:])
+        return selection
 
     # -- page inventory --------------------------------------------------
 
@@ -183,7 +199,7 @@ class PageRenderer:
         if replay is not None:
             global_fields = replay.shared
         if global_fields is None:
-            selection = select_replay_fields(self.index, page)
+            selection = self.replay_fields(page)
         else:
             # The document search computes shared fields once. Merge only the
             # selected page's bracket while retaining the physical field order.
@@ -221,7 +237,7 @@ class PageRenderer:
         if page < 0:
             raise RenderError(f"Page {page} is outside the document.")
         if page < self.index.page_count:
-            selection = select_replay_fields(self.index, page)
+            selection = self.replay_fields(page)
             with self.path.open("rb") as handle:
                 fields = _read_fields(handle, self.index, selection)
             pages = extract_pages(fields, self.codepage, self.embed_small_fonts)

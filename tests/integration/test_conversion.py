@@ -11,7 +11,8 @@ from afpstudio.testing import synthetic
 @pytest.mark.parametrize("fmt,magic", [("png", b"\x89PNG"), ("pdf", b"%PDF"), ("tiff", b"II")])
 def test_local_preview_conversion_has_valid_output_and_preserves_source(tmp_path, fmt, magic):
     path = tmp_path / "job.afp"
-    raw = synthetic.demo_job()
+    raw = (synthetic.bdt() + synthetic.bpg() + synthetic.pgd(210, 297)
+           + synthetic.ptx_text([("Preview output", 480)]) + synthetic.epg() + synthetic.edt())
     path.write_bytes(raw)
     output = tmp_path / ("preview." + fmt)
     document = DocumentStore().open(path)

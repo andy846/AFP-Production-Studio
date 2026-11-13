@@ -64,6 +64,7 @@ class Config:
         )
         self.max_concurrent_jobs: int = _env_int("AFP_STUDIO_MAX_JOBS", 2)
         self.job_timeout_seconds: int = _env_int("AFP_STUDIO_JOB_TIMEOUT", 900)
+        self.pdf_timeout_seconds: int = _env_int("AFP_STUDIO_PDF_TIMEOUT_SECONDS", 14400)
 
         self.adapter_jar: Path | None = None
         jar_override = os.environ.get("AFP_STUDIO_ALPHEUS_JAR")

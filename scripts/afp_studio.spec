@@ -81,6 +81,10 @@ a = Analysis(
         "_pytest",
         "matplotlib",
         "numpy",
+        "fitz",
+        "pymupdf",
+        "pypdf",
+        "psutil",
         # pywebview can drive a Qt window, but this build uses the
         # Windows WebView2 control. Excluding Qt keeps roughly twenty
         # megabytes of unused runtime out of the executable.
